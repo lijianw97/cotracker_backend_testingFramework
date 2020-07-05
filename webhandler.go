@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 
+	functions "./lib"
 	_ "github.com/go-sql-driver/mysql"
 )
 
@@ -296,5 +297,6 @@ func main() {
 	http.HandleFunc("/AddExposure", insertExposure)
 	http.HandleFunc("/PostTekWithDevice", posttekWithDevice)
 	http.HandleFunc("/PostRpiWithTek", updateTekRpi)
+	fmt.Println(functions.Test())
 	log.Fatal(http.ListenAndServe(":8003", nil))
 }
