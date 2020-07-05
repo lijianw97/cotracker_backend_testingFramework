@@ -150,33 +150,6 @@ func addDevice(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("end AddDevice")
 }
 
-// func createSession(w http.ResponseWriter, r *http.Request) {
-// 	fmt.Println("start createSession")
-// 	body, _ := ioutil.ReadAll(r.Body)
-// 	fmt.Println(body)
-// 	var requestdata []DeviceData
-// 	err := json.Unmarshal(body, &requestdata)
-// 	if err != nil {
-// 		log.Println(err)
-// 	}
-// 	db, err := sql.Open("mysql", url)
-// 	defer fmt.Println("db closed")
-// 	defer db.Close()
-// 	if err != nil {
-// 		fmt.Println(err.Error())
-// 	} else {
-// 		fmt.Println("sucess connected to database")
-// 		for _, v := range requestdata {
-// 			insert, _ := db.Query("INSERT INTO _deprecated_Test_Devices( userid, MAC_Address, TEK, recvRPI, exposureDuration, EndContact_ts, createTime, updateTime, Test_Devicescol) VALUES (?,?,?,?,?,?,?,?,?)",
-// 				v.Userid, v.MAC_Address, v.TEK, v.RecvRPI, v.ExposureDuration, v.EndContact_ts, v.CreateTime, v.UpdateTime, v.Test_Devicescol)
-// 			defer fmt.Println("insert closed")
-// 			defer insert.Close()
-// 		}
-// 	}
-// 	fmt.Printf("log %+v\n", requestdata)
-// 	w.Write([]byte("device inserted"))
-// 	fmt.Println("end AddDevice")
-// }
 func insertExposure(w http.ResponseWriter, r *http.Request){
 	body, _ := ioutil.ReadAll(r.Body)
 	fmt.Println(body)
@@ -293,10 +266,12 @@ func main() {
 	fmt.Println("listen")
 	http.HandleFunc("/PostTek", posttek)
 	http.HandleFunc("/GetTek", gettek)
-	http.HandleFunc("/AddDevice", addDevice)
+	http.HandleFunc("/_deprecated_AddDevice", addDevice)
 	http.HandleFunc("/AddExposure", insertExposure)
 	http.HandleFunc("/PostTekWithDevice", posttekWithDevice)
 	http.HandleFunc("/PostRpiWithTek", updateTekRpi)
-	fmt.Println(functions.Test())
+	http.HandleFunc("/GetSessionID", functions.GetSessionID)
+	http.HandleFunc("/CreateSession", functions.CreateSession)
+	http.HandleFunc("/JoinSession", functions.JoinSession)
 	log.Fatal(http.ListenAndServe(":8003", nil))
 }
