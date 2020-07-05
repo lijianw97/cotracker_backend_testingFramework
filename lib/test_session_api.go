@@ -6,6 +6,7 @@ import (
     "fmt"
  	"io/ioutil"
  	"log"
+	"time"
  	"net/http"
 	"strconv"
 	_ "github.com/go-sql-driver/mysql"
@@ -97,44 +98,66 @@ func CreateSession(w http.ResponseWriter, r *http.Request){
 	var req SessionGeneric
 	err = json.Unmarshal(body, &req)
 	fmt.Printf("%+v\n",req) // Print with Variable Name
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	// deal with device info first
+	stmt, err := db.Prepare("INSERT IGNORE INTO Test_Devices(isAndroid, ID) VALUES (?,?)")
+	defer stmt.Close()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	_, err = stmt.Exec(req.IsAndroid, req.DeviceID)
+	if err!= nil{
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	stmt.Close()
+	q := `
+	select sessionID from Test_Sessions where sessionID = ? ;
+	`
+	rows, err := db.Query(q , req.SessionID)
+	hasSession := false
+	defer rows.Close()
+	for rows.Next(){
+		var sessionid int
+		if err := rows.Scan(&sessionid); err != nil {
+			hasSession = false
+			log.Fatal(err)
+		}
+		fmt.Println(sessionid)
+		hasSession =  true;
+		fmt.Println("session unavailable")
+	}
+	rows.Close()
+	if hasSession == false{
+		fmt.Println("session available")
+		q := `
+		insert into Test_Sessions (sessionID) values (?);
+		`
+		q2:=`
+		insert into Test_hasDevice (isAndroid, deviceID, sessionID, startTime) values (?,?,?,?);
+		`
+		_, err = db.Exec(q,req.SessionID)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		_, err = db.Exec(q2, req.IsAndroid, req.DeviceID,req.SessionID, time.Now().UTC())
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		w.Write([]byte("session created and joined!"))
 
-	// if err != nil {
-	// 	w.WriteHeader(http.StatusBadRequest)
-	// 	w.Write([]byte(err.Error()))
-	// 	return
-	// }
-	// stmt, err := db.Prepare("INSERT INTO Test_Sessions VALUES  (?,?)")
-	// defer stmt.Close()
-	// if err != nil {
-	// 	w.WriteHeader(http.StatusInternalServerError)
-	// 	w.Write([]byte(err.Error()))
-	// 	return
-	// }
-	// w.WriteHeader(http.StatusOK)
-	// for _, v := range req{
-	// 	_, err = stmt.Exec(v.SessionID, v.IsAndroid)
-	// 	if err!= nil{
-	// 		w.WriteHeader(http.StatusInternalServerError)
-	// 		w.Write([]byte(err.Error()))
-	// 	}
-	// }
-
-	//} else {
-	//	fmt.Println("sucess connected to database")
-	//	q := `select max(sessionID) + 1 from Test_Sessions`
-	//	rows, err := db.Query(q)
-	//	if (err != nil){
-	//		log.Fatal(err)
-	//	}
-	//	defer rows.Close()
-	//	var sessionID int
-	//	rows.Next()
-	//	rows.Scan(&sessionID)
-	//	fmt.Println("sesson id is ?", sessionID)
-	//	t:=strconv.Itoa(sessionID)
-	//	 // var a = "sesson id is " + t
-	//	w.Write([]byte(t))
-	//}
+	}
 }
 
 // insert Test_hasDevice table given (SINGLE) correct sessionID
