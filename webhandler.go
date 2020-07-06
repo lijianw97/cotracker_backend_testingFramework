@@ -273,5 +273,6 @@ func main() {
 	http.HandleFunc("/GetSessionID", functions.GetSessionID)
 	http.HandleFunc("/CreateSession", functions.CreateSession)
 	http.HandleFunc("/JoinSession", functions.JoinSession)
+	http.HandleFunc("/EndSession", functions.EndSession)
 	log.Fatal(http.ListenAndServe(":8003", nil))
 }

@@ -44,6 +44,7 @@ type SessionGeneric struct {
 	IsAndroid 	bool `json:"isAndroid"`
 	DeviceID  	string `json:"deviceID"`
 	Alias 	  	string `json:"alias"`
+	AdditionalDetail		string `json:"additionalDetail"`
 	StartTime	string `json:"startTime"`
 	EndTime	string `json:"endTime"`
 }
@@ -58,7 +59,9 @@ func GetSessionID(w http.ResponseWriter, r *http.Request) {
 	defer fmt.Println("db closed")
 	defer db.Close()
 	if err != nil {
-		fmt.Println(err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
 	} else {
 		fmt.Println("sucess connected to database")
 		q := `select max(sessionID) + 1 from Test_Sessions`
@@ -103,7 +106,7 @@ func CreateSession(w http.ResponseWriter, r *http.Request){
 		w.Write([]byte(err.Error()))
 		return
 	}
-	// deal with device info first
+	//deal with device info first 
 	stmt, err := db.Prepare("INSERT IGNORE INTO Test_Devices(isAndroid, ID) VALUES (?,?)")
 	defer stmt.Close()
 	if err != nil {
@@ -133,12 +136,15 @@ func CreateSession(w http.ResponseWriter, r *http.Request){
 		fmt.Println(sessionid)
 		hasSession =  true;
 		fmt.Println("session unavailable")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("session unavailable"))
+		return
 	}
 	rows.Close()
 	if hasSession == false{
 		fmt.Println("session available")
 		q := `
-		insert into Test_Sessions (sessionID) values (?);
+		insert into Test_Sessions (sessionID, isActive) values (?, true);
 		`
 		q2:=`
 		insert into Test_hasDevice (isAndroid, deviceID, sessionID, startTime) values (?,?,?,?);
@@ -162,8 +168,14 @@ func CreateSession(w http.ResponseWriter, r *http.Request){
 
 // insert Test_hasDevice table given (SINGLE) correct sessionID
 // eg: curl -X post -i http://ec2-18-191-37-235.us-east-2.compute.amazonaws.com:8003/JoinSession --data '{"sessionID": 0, "deviceID": "c72972f5-301d-43d1-b3e6-b3b58ea84386", "isAndroid":false, "startTime": "2020-05-07 23:39:18", "alias": "my iphone"}'
+
+// JoinSession:
+// request json field: sessionID, isAndroid, deviceID
+// respones json field: null; 
+// on success: status code = 200 http.StatusOK and return message
+// on failed: status code = 500 http.StatusInternalServerError and return message
 func JoinSession(w http.ResponseWriter, r *http.Request){
-	fmt.Println("querying for session")
+	fmt.Println("querying for target session")
 	db, err := sql.Open("mysql", url)
 	defer fmt.Println("db closed")
 	defer db.Close()
@@ -174,73 +186,140 @@ func JoinSession(w http.ResponseWriter, r *http.Request){
 		return
 	}
 	body, _ := ioutil.ReadAll(r.Body)
-	var req SessionDevice
+	var req SessionGeneric
 	err = json.Unmarshal(body, &req)
-	if err != nil{
+	fmt.Printf("%+v\n",req) // Print with Variable Name
+	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(err.Error()))
 		return
 	}
-	row, err := db.Query("SELECT isActive from Test_Sessions WHERE sessionID=?", req.SessionID)
-	defer row.Close()
-	if err != nil{
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return
-	}
-	if !row.Next(){
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Invalid SessionID="+strconv.Itoa(req.SessionID)))
-		return
-	}
-	var isActive bool
-	row.Scan(&isActive)
-	if !isActive{
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Inactive SessionID="+strconv.Itoa(req.SessionID)))
-		return
-	}
-	row2, err := db.Query("SELECT * from Test_hasDevice WHERE isAndroid=? AND deviceID=? AND sessionID=? LIMIT 1", req.IsAndroid, req.DeviceID, req.SessionID)
-	defer row2.Close()
-	if err != nil{
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return
-	}
-	if row2.Next(){
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Device already joined"))
-		return
-	}
-	stmt, err := db.Prepare("INSERT INTO Test_hasDevice (isAndroid, deviceID, sessionID, startTime, alias) VALUES (?,?,?,?,?)")
+	// deal with device info first
+	stmt, err := db.Prepare("INSERT IGNORE INTO Test_Devices(isAndroid, ID) VALUES (?,?)")
 	defer stmt.Close()
-	if err != nil{
+	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(err.Error()))
 		return
 	}
-	_, err = stmt.Exec(req.IsAndroid, req.DeviceID, req.SessionID, req.StartTime, req.Alias)
-	if err != nil{
+	_, err = stmt.Exec(req.IsAndroid, req.DeviceID)
+	if err!= nil{
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(err.Error()))
 		return
 	}
-	w.WriteHeader(http.StatusOK)
-	//} else {
-	//	fmt.Println("sucess connected to database")
-	//	q := `select max(sessionID) + 1 from Test_Sessions`
-	//	rows, err := db.Query(q)
-	//	if (err != nil){
-	//		log.Fatal(err)
-	//	}
-	//	defer rows.Close()
-	//	var sessionID int
-	//	rows.Next()
-	//	rows.Scan(&sessionID)
-	//	fmt.Println("sesson id is ?", sessionID)
-	//	t:=strconv.Itoa(sessionID)
-	//	 // var a = "sesson id is " + t
-	//	w.Write([]byte(t))
-	//}
+	stmt.Close()
+	q := `
+	select sessionID from Test_Sessions where sessionID = ? and isActive = 1;
+	`
+	rows, err := db.Query(q , req.SessionID)
+	hasSession := false
+	defer rows.Close()
+	for rows.Next(){
+		var sessionid int
+		if err := rows.Scan(&sessionid); err != nil {
+			fmt.Println("session is not active")
+			hasSession = false
+			log.Fatal(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("target session is not active"))
+			return
+		}
+		fmt.Println(sessionid)
+		hasSession =  true;
+		fmt.Println("active session found")
+	}
+	if hasSession == false{
+		fmt.Println("no available session")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("target session is not active"))
+		return
+	}
+	rows.Close()
+	if hasSession == true{
+		fmt.Println("session available")
+		q2:=`
+		insert ignore into Test_hasDevice (isAndroid, deviceID, sessionID, startTime) values (?,?,?,?);
+		`
+		_, err = db.Exec(q2, req.IsAndroid, req.DeviceID,req.SessionID, time.Now().UTC())
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		w.Write([]byte("session joined!"))
+
+	}
+}
+
+/**
+EndSession: 
+req json field: isAndroid, deviceID, sessionID, additionalDetail
+res json field: null
+Add an endTime to device. 
+Check if there is any other device with the same 
+*/
+func EndSession(w http.ResponseWriter, r *http.Request){
+	fmt.Println("ending session")
+	db, err := sql.Open("mysql", url)
+	defer fmt.Println("db closed")
+	defer db.Close()
+	if err != nil {
+		fmt.Println(err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	body, _ := ioutil.ReadAll(r.Body)
+	var req SessionGeneric
+	err = json.Unmarshal(body, &req)
+	fmt.Printf("%+v\n",req) // Print with Variable Name
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	q := `
+	update Test_hasDevice set endTime = ? where isAndroid = ? and deviceID = ? and sessionID = ? ; 
+	`
+	_, err = db.Exec(q, time.Now().UTC(), req.IsAndroid, req.DeviceID, req.SessionID)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	// now check if I should set a session as inactive 
+	// query for all devices given a sessionID which is unique across time. 
+	// if any of them has endTime as null, this session is active
+	q1 := `
+	select count(*) from Test_hasDevice where sessionID = ? and endTime is null;
+	`
+	rows, err1 := db.Query(q1, req.SessionID)
+	if err1 != nil{
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err1.Error()))
+		return
+	}
+	defer rows.Close()
+	var count int
+	rows.Next()
+	rows.Scan(&count)
+	fmt.Printf("%d device is still active in the session",count)
+	if count != 0{
+		w.Write([]byte("Session ended but still active"))
+		return
+	} else{
+		fmt.Println("no active device in the target session")
+		q2 := `
+		update Test_Sessions set isActive = 0 where sessionID = ?;
+		`
+		_,err = db.Exec(q2, req.SessionID)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		w.Write([]byte("Session ended and is inactive"))
+	}
 }
 
