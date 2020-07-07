@@ -14,8 +14,19 @@ import (
 
 const url string = "root:wang7203311@tcp(database-2.c1gw860hlwji.us-east-2.rds.amazonaws.com:3306)/LocationTable"
 
+type SessionGeneric struct {
+	SessionID 	int `json:"sessionID"`
+	IsAndroid 	bool `json:"isAndroid"`
+	DeviceID  	string `json:"deviceID"`
+	Alias 	  	string `json:"alias"`
+	AdditionalDetail		string `json:"additionalDetail"`
+	StartTime	string `json:"startTime"`
+	EndTime	string `json:"endTime"`
+}
+
+
 type DeviceData struct {
-	Userid           string `json:"userid"`
+	Userid           string `json:"userid"` 
 	MAC_Address      string `json:"MAC_Address"`
 	TEK              string `json:"TEK"`
 	RecvRPI          string `json:"recvRPI"`
@@ -37,16 +48,6 @@ type SessionDevice struct {
 type SessionList []struct {
 	SessionID 	int
 	IsAndroid 	bool
-}
-
-type SessionGeneric struct {
-	SessionID 	int `json:"sessionID"`
-	IsAndroid 	bool `json:"isAndroid"`
-	DeviceID  	string `json:"deviceID"`
-	Alias 	  	string `json:"alias"`
-	AdditionalDetail		string `json:"additionalDetail"`
-	StartTime	string `json:"startTime"`
-	EndTime	string `json:"endTime"`
 }
 
 func Test() string{
@@ -306,7 +307,7 @@ func EndSession(w http.ResponseWriter, r *http.Request){
 	rows.Scan(&count)
 	fmt.Printf("%d device is still active in the session",count)
 	if count != 0{
-		w.Write([]byte("Session ended but still active"))
+		w.Write([]byte(fmt.Sprintf("Session ended but %d devices active", count)))
 		return
 	} else{
 		fmt.Println("no active device in the target session")
@@ -323,3 +324,45 @@ func EndSession(w http.ResponseWriter, r *http.Request){
 	}
 }
 
+/**
+SessionReport: 
+parameter: should be taken from url parameters in a GET method. 
+Check if there is any other device with the same 
+*/
+func SessionReport(w http.ResponseWriter, r *http.Request){
+	var (
+		sessionID []string
+		deviceIndex []string
+	)
+	queryMap:= r.URL.Query()
+	sessionID = queryMap["sessionID"]
+	deviceIndex = queryMap["deviceIndex"]
+	fmt.Println(queryMap)
+	fmt.Println(len(sessionID))
+	fmt.Println(len(deviceIndex))
+	if len(sessionID) == 0{
+		resp := `
+		No sessionID. Maybe I should list out all sessionIDs, 
+		and show how many sessions are ongoing and how many are inactive. 
+		Maybe also show stats about when those session begin and end.
+		As well as number of ongoing devices and stuff. 
+
+		`
+		w.Write([]byte(resp))
+		return 
+	} else if len(deviceIndex) == 0{
+		resp := `
+		Summary of the selected session. 
+		No device specific details
+		`
+		w.Write([]byte(resp))
+		return 
+	} else{
+		resp := `
+		device specific details
+		`
+		w.Write([]byte(resp))
+		return 
+	}
+
+}

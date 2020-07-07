@@ -42,24 +42,27 @@ type DeviceData struct {
 	UpdateTime       string `json:"updateTime"`
 	Test_Devicescol  string `json:"Test_Devicescol"`
 }
-type ExposureData struct {
+type ExposureData []struct {
 	SessionID		int
-	IsAndroid		bool
-	DeviceID		string
 	RPI				string
-	StartTime		string
+	StartTime		int
 	Duration		int
 	Source 			string
-	PeripheralUuid 	string
+	Address	 		string
 }
-type TekRpiData struct{
+type TekRpiData []struct{
+	SessionID		int
 	TEK 			string
-	TEKStartTime 	string
-	DeviceID		string
-	IsAndroid		bool
+	TEKStartTime 	int
 	RPI				string
-	RPIStartTime	string
+	RPIStartTime	int
 	Event 			string
+}
+type SessionData struct{
+	Contact 		ExposureData
+	Rpi 			TekRpiData
+	IsAndroid		bool
+	DeviceID		string
 }
 func gettek(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("connected!!!!")
@@ -150,74 +153,13 @@ func addDevice(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("end AddDevice")
 }
 
-func insertExposure(w http.ResponseWriter, r *http.Request){
-	body, _ := ioutil.ReadAll(r.Body)
-	fmt.Println(body)
-	var requestdata []ExposureData
-	var db *sql.DB
-	var err error
-	err = json.Unmarshal(body, &requestdata)
-	if err != nil {
-		log.Println(err)
-	}
-	db, err = sql.Open("mysql", url)
-
-	if err != nil {
-		fmt.Println(err.Error())
-		return
-	}
-	defer db.Close()
-	fmt.Println("sucess connected to database")
-	stmt, err := db.Prepare("INSERT INTO Test_Exposures (sessionID, isAndroid, deviceID, RPI, startTime, duration, source, peripheralUuid) VALUES (?,?,?,?,?,?,?,?)")
-	if err != nil {
-		fmt.Println(err.Error())
-		return
-	}
-	defer stmt.Close()
-	for _, v := range requestdata {
-		_, err := stmt.Exec(v.SessionID, v.IsAndroid, v.DeviceID, v.RPI, v.StartTime, v.Duration, v.Source, v.PeripheralUuid) // @TODO: change to Exec
-		if err != nil {
-			fmt.Println(err.Error())
-		}
-		defer fmt.Println("insert closed")
-	}
-	fmt.Printf("log %+v\n", requestdata)
-	w.Write([]byte("device inserted"))
-}
-
-func posttekWithDevice(w http.ResponseWriter, r *http.Request) {
+func postSessionData(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("connected!!!!")
 	body, _ := ioutil.ReadAll(r.Body)
-	// fmt.Println(body)
-	var requestdata TekStructDevice
+	var requestdata SessionData
 	err := json.Unmarshal(body, &requestdata)
 	if err != nil {
-		log.Printf("error here")
-	}
-	db, err := sql.Open("mysql", url)
-	defer db.Close()
-	if err != nil {
-		fmt.Println(err.Error())
-	} else {
-		fmt.Println("sucess connected posttekWithDevice")
-		for _, v := range requestdata {
-			insert, _ := db.Query("INSERT INTO Test_TEK (TEK, startTime, deviceID, isAndroid) VALUES (?,?,?,?)",
-				v.Tek, v.Timestemp, v.DeviceID, v.IsAndroid)
-			defer insert.Close()
-		}
-	}
-	//fmt.Printf("log time = %d and tek = %s\n", requestdata[0].Timestemp, requestdata[0].Tek)
-	w.Write([]byte("This is response"))
-	fmt.Println("connected!!!!")
-}
-
-func updateTekRpi(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("connected!!!!")
-	body, _ := ioutil.ReadAll(r.Body)
-	var requestdata TekRpiData
-	err := json.Unmarshal(body, &requestdata)
-	if err != nil {
-		log.Printf("error here")
+		log.Printf(err.Error())
 		return
 	}
 	db, err := sql.Open("mysql", url)
@@ -226,53 +168,135 @@ func updateTekRpi(w http.ResponseWriter, r *http.Request) {
 		fmt.Println(err.Error())
 		return
 	}
-	fmt.Println("sucess connected PostRpiWithTek")
-	row, err := db.Query("SELECT TEK, startTime, deviceID, isAndroid FROM Test_TEK WHERE TEK = ? AND deviceID = ? AND isAndroid = ? LIMIT 1",
-		requestdata.TEK, requestdata.DeviceID, requestdata.IsAndroid)
-	if err != nil{
-		fmt.Println(err.Error())
-		return
-	}
-	defer row.Close()
-	if !row.Next() || requestdata.TEK == ""{ // insert into Test_TEK if entry/TEK missing
-		stmtTek, err := db.Prepare("INSERT INTO Test_TEK (TEK, startTime, deviceID, isAndroid) VALUES (?,?,?,?)")
-		if err != nil{
-			fmt.Println(err.Error())
-			return
-		}
-		defer stmtTek.Close()
-		_, err = stmtTek.Exec(requestdata.TEK, requestdata.TEKStartTime, requestdata.DeviceID, requestdata.IsAndroid)
-		if err != nil{
-			fmt.Println(err.Error())
-			return
-		}
-	}
-	stmtRpi, err := db.Prepare("INSERT INTO Test_RPI (TEK, TEKStartTime, deviceID, isAndroid, RPI, RPIStartTime, event) VALUES (?, ?, ?, ?, ?, ?, ?)")
-	if err != nil{
-		fmt.Println(err.Error())
-		return
-	}
-	defer stmtRpi.Close()
-	_, err = stmtRpi.Exec(requestdata.TEK, requestdata.TEKStartTime, requestdata.DeviceID, requestdata.IsAndroid, requestdata.RPI, requestdata.RPIStartTime, requestdata.Event)
-	if err != nil{
-		fmt.Println(err.Error())
-		return
-	}
-	w.Write([]byte("Success: tek=" + requestdata.TEK + "rpi=" + requestdata.RPI))
-	fmt.Println("connected!!!!")
+	fmt.Println("sucess connected postSessionData")
+	fmt.Println(requestdata)
 }
+
+//func insertExposure(w http.ResponseWriter, r *http.Request){
+//	body, _ := ioutil.ReadAll(r.Body)
+//	fmt.Println(body)
+//	var requestdata []ExposureData
+//	var db *sql.DB
+//	var err error
+//	err = json.Unmarshal(body, &requestdata)
+//	if err != nil {
+//		log.Println(err)
+//	}
+//	db, err = sql.Open("mysql", url)
+//
+//	if err != nil {
+//		fmt.Println(err.Error())
+//		return
+//	}
+//	defer db.Close()
+//	fmt.Println("sucess connected to database")
+//	stmt, err := db.Prepare("INSERT INTO Test_Exposures (sessionID, isAndroid, deviceID, RPI, startTime, duration, source, peripheralUuid) VALUES (?,?,?,?,?,?,?,?)")
+//	if err != nil {
+//		fmt.Println(err.Error())
+//		return
+//	}
+//	defer stmt.Close()
+//	for _, v := range requestdata {
+//		_, err := stmt.Exec(v.SessionID, v.IsAndroid, v.DeviceID, v.RPI, v.StartTime, v.Duration, v.Source, v.PeripheralUuid) // @TODO: change to Exec
+//		if err != nil {
+//			fmt.Println(err.Error())
+//		}
+//		defer fmt.Println("insert closed")
+//	}
+//	fmt.Printf("log %+v\n", requestdata)
+//	w.Write([]byte("device inserted"))
+//}
+//
+//func posttekWithDevice(w http.ResponseWriter, r *http.Request) {
+//	fmt.Println("connected!!!!")
+//	body, _ := ioutil.ReadAll(r.Body)
+//	// fmt.Println(body)
+//	var requestdata TekStructDevice
+//	err := json.Unmarshal(body, &requestdata)
+//	if err != nil {
+//		log.Printf("error here")
+//	}
+//	db, err := sql.Open("mysql", url)
+//	defer db.Close()
+//	if err != nil {
+//		fmt.Println(err.Error())
+//	} else {
+//		fmt.Println("sucess connected posttekWithDevice")
+//		for _, v := range requestdata {
+//			insert, _ := db.Query("INSERT INTO Test_TEK (TEK, startTime, deviceID, isAndroid) VALUES (?,?,?,?)",
+//				v.Tek, v.Timestemp, v.DeviceID, v.IsAndroid)
+//			defer insert.Close()
+//		}
+//	}
+//	//fmt.Printf("log time = %d and tek = %s\n", requestdata[0].Timestemp, requestdata[0].Tek)
+//	w.Write([]byte("This is response"))
+//	fmt.Println("connected!!!!")
+//}
+//
+//func updateTekRpi(w http.ResponseWriter, r *http.Request) {
+//	fmt.Println("connected!!!!")
+//	body, _ := ioutil.ReadAll(r.Body)
+//	var requestdata TekRpiData
+//	err := json.Unmarshal(body, &requestdata)
+//	if err != nil {
+//		log.Printf("error here")
+//		return
+//	}
+//	db, err := sql.Open("mysql", url)
+//	defer db.Close()
+//	if err != nil {
+//		fmt.Println(err.Error())
+//		return
+//	}
+//	fmt.Println("sucess connected PostRpiWithTek")
+//	row, err := db.Query("SELECT TEK, startTime, deviceID, isAndroid FROM Test_TEK WHERE TEK = ? AND deviceID = ? AND isAndroid = ? LIMIT 1",
+//		requestdata.TEK, requestdata.DeviceID, requestdata.IsAndroid)
+//	if err != nil{
+//		fmt.Println(err.Error())
+//		return
+//	}
+//	defer row.Close()
+//	if !row.Next() || requestdata.TEK == ""{ // insert into Test_TEK if entry/TEK missing
+//		stmtTek, err := db.Prepare("INSERT INTO Test_TEK (TEK, startTime, deviceID, isAndroid) VALUES (?,?,?,?)")
+//		if err != nil{
+//			fmt.Println(err.Error())
+//			return
+//		}
+//		defer stmtTek.Close()
+//		_, err = stmtTek.Exec(requestdata.TEK, requestdata.TEKStartTime, requestdata.DeviceID, requestdata.IsAndroid)
+//		if err != nil{
+//			fmt.Println(err.Error())
+//			return
+//		}
+//	}
+//	stmtRpi, err := db.Prepare("INSERT INTO Test_RPI (TEK, TEKStartTime, deviceID, isAndroid, RPI, RPIStartTime, event) VALUES (?, ?, ?, ?, ?, ?, ?)")
+//	if err != nil{
+//		fmt.Println(err.Error())
+//		return
+//	}
+//	defer stmtRpi.Close()
+//	_, err = stmtRpi.Exec(requestdata.TEK, requestdata.TEKStartTime, requestdata.DeviceID, requestdata.IsAndroid, requestdata.RPI, requestdata.RPIStartTime, requestdata.Event)
+//	if err != nil{
+//		fmt.Println(err.Error())
+//		return
+//	}
+//	w.Write([]byte("Success: tek=" + requestdata.TEK + "rpi=" + requestdata.RPI))
+//	fmt.Println("connected!!!!")
+//}
 
 func main() {
 	fmt.Println("listen")
 	http.HandleFunc("/PostTek", posttek)
 	http.HandleFunc("/GetTek", gettek)
 	http.HandleFunc("/_deprecated_AddDevice", addDevice)
-	http.HandleFunc("/AddExposure", insertExposure)
-	http.HandleFunc("/PostTekWithDevice", posttekWithDevice)
-	http.HandleFunc("/PostRpiWithTek", updateTekRpi)
+	//http.HandleFunc("/AddExposure", insertExposure)
+	//http.HandleFunc("/PostTekWithDevice", posttekWithDevice)
+	//http.HandleFunc("/PostRpiWithTek", updateTekRpi)
+	http.HandleFunc("/PostSessionData", postSessionData)
 	http.HandleFunc("/GetSessionID", functions.GetSessionID)
 	http.HandleFunc("/CreateSession", functions.CreateSession)
 	http.HandleFunc("/JoinSession", functions.JoinSession)
 	http.HandleFunc("/EndSession", functions.EndSession)
+	http.HandleFunc("/SessionReport", functions.SessionReport)
 	log.Fatal(http.ListenAndServe(":8003", nil))
 }
