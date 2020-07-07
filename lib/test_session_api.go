@@ -11,7 +11,6 @@ import (
 	"strconv"
 	_ "github.com/go-sql-driver/mysql"
 )
-
 const url string = "root:wang7203311@tcp(database-2.c1gw860hlwji.us-east-2.rds.amazonaws.com:3306)/LocationTable"
 
 type SessionGeneric struct {
@@ -133,6 +132,9 @@ func CreateSession(w http.ResponseWriter, r *http.Request){
 		if err := rows.Scan(&sessionid); err != nil {
 			hasSession = false
 			log.Fatal(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
 		}
 		fmt.Println(sessionid)
 		hasSession =  true;
@@ -156,7 +158,7 @@ func CreateSession(w http.ResponseWriter, r *http.Request){
 			w.Write([]byte(err.Error()))
 			return
 		}
-		_, err = db.Exec(q2, req.IsAndroid, req.DeviceID,req.SessionID, time.Now().UTC())
+		_, err = db.Exec(q2, req.IsAndroid, req.DeviceID,req.SessionID, time.Now())
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
@@ -242,7 +244,7 @@ func JoinSession(w http.ResponseWriter, r *http.Request){
 		q2:=`
 		insert ignore into Test_hasDevice (isAndroid, deviceID, sessionID, startTime) values (?,?,?,?);
 		`
-		_, err = db.Exec(q2, req.IsAndroid, req.DeviceID,req.SessionID, time.Now().UTC())
+		_, err = db.Exec(q2, req.IsAndroid, req.DeviceID,req.SessionID, time.Now())
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
@@ -283,7 +285,7 @@ func EndSession(w http.ResponseWriter, r *http.Request){
 	q := `
 	update Test_hasDevice set endTime = ? where isAndroid = ? and deviceID = ? and sessionID = ? ; 
 	`
-	_, err = db.Exec(q, time.Now().UTC(), req.IsAndroid, req.DeviceID, req.SessionID)
+	_, err = db.Exec(q, time.Now(), req.IsAndroid, req.DeviceID, req.SessionID)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(err.Error()))
@@ -331,38 +333,222 @@ Check if there is any other device with the same
 */
 func SessionReport(w http.ResponseWriter, r *http.Request){
 	var (
-		sessionID []string
-		deviceIndex []string
+		sessionIDs []string
+		deviceIndexes []string
 	)
 	queryMap:= r.URL.Query()
-	sessionID = queryMap["sessionID"]
-	deviceIndex = queryMap["deviceIndex"]
+	sessionIDs = queryMap["sessionID"]
+	deviceIndexes = queryMap["deviceIndex"]
 	fmt.Println(queryMap)
-	fmt.Println(len(sessionID))
-	fmt.Println(len(deviceIndex))
-	if len(sessionID) == 0{
+	fmt.Println(len(sessionIDs))
+	fmt.Println(len(deviceIndexes))
+	if len(sessionIDs) == 0{
 		resp := `
-		No sessionID. Maybe I should list out all sessionIDs, 
-		and show how many sessions are ongoing and how many are inactive. 
-		Maybe also show stats about when those session begin and end.
-		As well as number of ongoing devices and stuff. 
-
+No sessionID. Please consider appending "?sessionID=1&deviceIndex=1" at the end of the url for specific session or specific device. 
+Maybe I should list out all sessionIDs, 
+and show how many sessions are ongoing and how many are inactive. 
+Maybe also show stats about when those session begin and end.
+As well as number of ongoing devices and stuff. 
 		`
+		resp += _reportSessionWithoutID()
 		w.Write([]byte(resp))
 		return 
-	} else if len(deviceIndex) == 0{
-		resp := `
-		Summary of the selected session. 
-		No device specific details
-		`
+	} else if len(deviceIndexes) == 0{
+		// resp := `
+		// Summary of the selected session. 
+		// No device specific details
+		// `
+		resp := ``
+		sessionID, err :=  strconv.Atoi(sessionIDs[0])
+		if err != nil{
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		resp += _reportSessionWithSessionID(sessionID)
 		w.Write([]byte(resp))
 		return 
 	} else{
-		resp := `
-		device specific details
-		`
+		resp := ``
+		sessionID, err :=  strconv.Atoi(sessionIDs[0])
+		if err != nil{
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		deviceIndex, err :=  strconv.Atoi(deviceIndexes[0])
+		if err != nil{
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		resp += _reportSessionWithBothID(sessionID, deviceIndex, w, r)
 		w.Write([]byte(resp))
-		return 
+		return
 	}
 
+}
+
+/*
+session report with both ids present: 
+query for session status 
+query for device status; print out total number of device in the session. number of active and inactive 
+*/
+func _reportSessionWithBothID(sessionID ,deviceIndex int, w http.ResponseWriter, r *http.Request) string {
+	var (
+		err		error
+		db		*sql.DB
+		rows	*sql.Rows
+		// rows2	*sql.Rows
+		q1		string
+		content []string
+		sessionStatus string
+		deviceCount string
+		deviceStatus []string // total 
+		// i			int // iterator index
+	)
+	db, err = sql.Open("mysql", url)
+	defer fmt.Println("db closed")
+	defer db.Close()
+	if err != nil {
+		fmt.Println(err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return ""
+	}
+	q1 = `
+		select isActive from Test_Sessions where sessionID=?;
+	`
+	rows,err = db.Query(q1, sessionID)
+	if err != nil{
+		fmt.Println(err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return ""
+	}
+	defer rows.Close()
+	rows.Next()
+	var isActive int
+	rows.Scan(&isActive)
+	rows.Close() // for reusing
+	if isActive == 1{
+		sessionStatus = "Active, expect incomplete data"
+	} else{
+		sessionStatus = "Inactive, data can be complete"
+	}
+	content = append(content, "Session Status",sessionStatus)
+
+	deviceStatus = nil
+	// get total devices 
+	q1 = `
+	select count(*) from Test_hasDevice where sessionID = ?;
+	`
+	rows, err = db.Query(q1,sessionID)
+	if err!=nil{
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return  err.Error()
+	}
+	rows.Next()
+	if err := rows.Scan(&deviceCount); err != nil{
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return  err.Error()
+	}
+	rows.Close()
+	fmt.Println("device count" + deviceCount)
+	deviceStatus = append(deviceStatus, deviceCount)
+
+	// get inactive devices 
+	q1 = `
+	select count(*) from Test_hasDevice where sessionID = ? and endTime is not null;
+	`
+	rows, err = db.Query(q1,sessionID)
+	if err!=nil{
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return  err.Error()
+	}
+	rows.Next()
+	if err := rows.Scan(&deviceCount); err != nil{
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return  err.Error()
+	}
+	rows.Close()
+	fmt.Println("device count" + deviceCount)
+	deviceStatus = append(deviceStatus, deviceCount)
+
+	// get acitve devices 
+	q1 = `
+	select count(*) from Test_hasDevice where sessionID = ? and endTime is null;
+	`
+	rows, err = db.Query(q1,sessionID)
+	if err!=nil{
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return  err.Error()
+	}
+	rows.Next()
+	if err := rows.Scan(&deviceCount); err != nil{
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return  err.Error()
+	}
+	rows.Close()
+	fmt.Println("device count" + deviceCount)
+	deviceStatus = append(deviceStatus, deviceCount)
+
+	content = append(content, "Device Status", fmt.Sprintf("There are, in total, %s devices , %s are inactive and %s are active", deviceStatus[0],deviceStatus[1], deviceStatus[2],  ));
+	deviceStatus = nil
+
+	// get exposures 
+	return _htmlify(content)
+}
+
+func _reportSessionWithoutID() string {
+	return _htmlify([]string{"title", "content", "another", "content2"})
+}
+
+func _reportSessionWithSessionID(sessionID int ) string {
+	return _htmlify([]string{"title", "content", "another", "content2"})
+}
+
+// input: array of string that follows
+// []string{topic1, content1, topic2, content2,...}
+// Function is intended to work with even numbered input string 
+// where the former element in a pair is topic and latter is content for that topic
+// output: html string for result rendering
+// input array of string in a paired way 0,1 2,3 4,5
+func _htmlify(content []string) string {
+	pre:=`
+<!DOCTYPE html>
+<html>
+<head>
+<title>Test Session Report</title>
+</head>
+<body>
+	`
+	post:=`
+</body>
+</html>
+	`
+	var body string
+	body = ""
+	if len(content) % 2 != 0{
+		body = "ERROR! Content is not even numbered"
+	} else{
+		for i:=0; i < len(content); i+=2{
+			body +=fmt.Sprintf(`
+			<h3>%s</h3>
+			<p>%s</p>
+			<hr>
+			`, content[i], content[i+1])
+		}
+	}
+	return pre + body + post
+}
+
+func _easyQuery(q string, args ...interface{}) string{
+	return ""
 }

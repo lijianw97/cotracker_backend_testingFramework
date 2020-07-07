@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"sort"
 
 	functions "./lib"
 	_ "github.com/go-sql-driver/mysql"
@@ -58,9 +59,18 @@ type TekRpiData []struct{
 	RPIStartTime	int
 	Event 			string
 }
+type RssiData []struct{
+	SessionID		int
+	Timestamp		int
+	Rssi			int
+	Address			string
+	Source			string
+	Rpi				string
+}
 type SessionData struct{
 	Contact 		ExposureData
 	Rpi 			TekRpiData
+	Rssi 			RssiData
 	IsAndroid		bool
 	DeviceID		string
 }
@@ -169,7 +179,77 @@ func postSessionData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Println("sucess connected postSessionData")
-	fmt.Println(requestdata)
+	//fmt.Println(requestdata)
+	// updateTekRpi
+	fmt.Println("updateTekRpi")
+	var storedTek []string
+	row, err := db.Query("SELECT DISTINCT TEK FROM Test_TEK WHERE deviceID = ? AND isAndroid = ?", requestdata.DeviceID, requestdata.IsAndroid)
+	if err != nil{
+		fmt.Println(err.Error())
+		return
+	}
+	defer row.Close()
+	for row.Next(){
+		var tek string
+		row.Scan(&tek)
+		storedTek = append(storedTek, tek)
+	}
+	sort.Strings(storedTek)
+	stmtTek, err := db.Prepare("INSERT INTO Test_TEK (TEK, startTime, deviceID, isAndroid) VALUES (?,from_unixtime(?/1000),?,?)")
+	if err != nil{
+		fmt.Println(err.Error())
+		return
+	}
+	defer stmtTek.Close()
+	stmtRpi, err := db.Prepare("INSERT INTO Test_RPI (TEK, TEKStartTime, deviceID, isAndroid, RPI, RPIStartTime, event) VALUES (?, from_unixtime(?/1000), ?, ?, ?, from_unixtime(?/1000), ?)")
+	if err != nil{
+		fmt.Println(err.Error())
+		return
+	}
+	defer stmtRpi.Close()
+	for _, v := range requestdata.Rpi{
+		i := sort.SearchStrings(storedTek, v.TEK)
+		if i >= len(storedTek) || storedTek[i] != v.TEK{ // encounter new Tek
+			_ ,err = stmtTek.Exec(v.TEK, v.TEKStartTime, requestdata.DeviceID, requestdata.IsAndroid)
+			if err != nil{
+				fmt.Println(err.Error())
+			}
+		}
+		_, err = stmtRpi.Exec(v.TEK, v.TEKStartTime, requestdata.DeviceID, requestdata.IsAndroid, v.RPI, v.RPIStartTime, v.Event)
+		if err != nil{
+			fmt.Println(err.Error())
+		}else{
+			storedTek = append(storedTek, v.TEK)
+		}
+	}
+	// insertExposure
+	fmt.Println("insertExposure")
+	stmt, err := db.Prepare("INSERT INTO Test_Exposures (sessionID, isAndroid, deviceID, RPI, startTime, duration, source, peripheralUuid) VALUES (?,?,?,?,from_unixtime(?/1000),?,?,?)")
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+	defer stmt.Close()
+	for _, v := range requestdata.Contact{
+		_, err := stmt.Exec(v.SessionID, requestdata.IsAndroid, requestdata.DeviceID, v.RPI, v.StartTime, v.Duration, v.Source, v.Address)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+	}
+	// insertRssi
+	fmt.Println("insertRssi")
+	stmtRssi, err := db.Prepare("INSERT INTO Test_Exposures_Rssi (isAndroid, deviceID, startTime, sessionID, RPI, RSSI, source, address) VALUES (?,?,from_unixtime(?/1000),?,?,?,?,?)")
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+	defer stmtRssi.Close()
+	for _, v := range requestdata.Rssi{
+		_, err = stmtRssi.Exec(requestdata.IsAndroid, requestdata.DeviceID, v.Timestamp, v.SessionID, v.Rpi, v.Rssi, v.Source, v.Address)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+	}
 }
 
 //func insertExposure(w http.ResponseWriter, r *http.Request){
