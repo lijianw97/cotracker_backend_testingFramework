@@ -21,6 +21,8 @@ type SessionGeneric struct {
 	AdditionalDetail		string `json:"additionalDetail"`
 	StartTime	string `json:"startTime"`
 	EndTime	string `json:"endTime"`
+	Message string  `json:"message"`
+	DeviceIndex string  `json:"deviceIndex"`
 }
 
 
@@ -158,13 +160,46 @@ func CreateSession(w http.ResponseWriter, r *http.Request){
 			w.Write([]byte(err.Error()))
 			return
 		}
-		_, err = db.Exec(q2, req.IsAndroid, req.DeviceID,req.SessionID, time.Now())
+		tm := time.Now()
+		_, err = db.Exec(q2, req.IsAndroid, req.DeviceID,req.SessionID, tm)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
 			return
 		}
-		w.Write([]byte("session created and joined!"))
+		// about the query below, if there are multiple open connections to the same session, get the first one always. When ending session, both connection will be closed
+		q = `
+		select deviceIndex from Test_hasDevice where isAndroid=? and deviceID =? and sessionID = ? and endTime is null order by deviceIndex asc;
+		`
+		rows, err = db.Query(q, req.IsAndroid, req.DeviceID, req.SessionID)
+		if err != nil{
+			fmt.Println(err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		rows.Next()
+		var deviceIdx string
+		if err = rows.Scan(&deviceIdx); err != nil{
+			fmt.Println(err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		fmt.Println("Device Index is ",deviceIdx)
+		rows.Close()
+		var response SessionGeneric
+		response.DeviceIndex = deviceIdx
+		response.Message = "session created and joined!"
+		js, errr:=json.Marshal(response)
+		fmt.Println("response"+string(js))
+		if errr != nil{
+			fmt.Println(err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		w.Write(js)
 
 	}
 }
@@ -250,7 +285,41 @@ func JoinSession(w http.ResponseWriter, r *http.Request){
 			w.Write([]byte(err.Error()))
 			return
 		}
-		w.Write([]byte("session joined!"))
+
+		// get deviceIndex again
+		// about the query below, if there are multiple open connections to the same session, get the first one always. When ending session, both connection will be closed
+		q := `
+		select deviceIndex from Test_hasDevice where isAndroid=? and deviceID =? and sessionID = ? and endTime is null order by deviceIndex asc;
+		`
+		rows, err = db.Query(q, req.IsAndroid, req.DeviceID, req.SessionID)
+		if err != nil{
+			fmt.Println(err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		rows.Next()
+		var deviceIdx string
+		if err = rows.Scan(&deviceIdx); err != nil{
+			fmt.Println(err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		fmt.Println("Device Index is ",deviceIdx)
+		rows.Close()
+		var response SessionGeneric
+		response.DeviceIndex = deviceIdx
+		response.Message = "Session Joined!"
+		js, errr:=json.Marshal(response)
+		fmt.Println("response"+string(js))
+		if errr != nil{
+			fmt.Println(err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		w.Write(js)
 
 	}
 }

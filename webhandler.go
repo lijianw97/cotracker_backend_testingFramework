@@ -179,7 +179,7 @@ func postSessionData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Println("sucess connected postSessionData")
-	//fmt.Println(requestdata)
+	fmt.Println(requestdata)
 	// updateTekRpi
 	fmt.Println("updateTekRpi")
 	var storedTek []string
