@@ -569,9 +569,14 @@ func _reportSessionWithBothID(sessionID ,deviceIndex int, w http.ResponseWriter,
 	deviceStatus = append(deviceStatus, deviceCount)
 
 	content = append(content, "Device Status", fmt.Sprintf("There are, in total, %s devices , %s are inactive and %s are active", deviceStatus[0],deviceStatus[1], deviceStatus[2],  ));
-	deviceStatus = nil
-
+	if deviceStatus[0] != "0"{
+		// keep doing analysis if the session has devices
+		deviceStatus = nil
+	}
 	// get exposures 
+
+	// get other devices
+	content = append(content, "Other devices", _p("NOPE") + _p("yep"))
 	return _htmlify(content)
 }
 
@@ -610,14 +615,25 @@ func _htmlify(content []string) string {
 		for i:=0; i < len(content); i+=2{
 			body +=fmt.Sprintf(`
 			<h3>%s</h3>
-			<p>%s</p>
+			%s
 			<hr>
 			`, content[i], content[i+1])
 		}
 	}
 	return pre + body + post
 }
+// html helper
+func _bold(s string) string{
+	return fmt.Sprintf("<b>%s</b>",s)
+}
+func _italic(s string) string{
+	return fmt.Sprintf("<i>%s</i>",s)
+}
+func _p(s string) string{
+	return fmt.Sprintf("<p>%s</p>",s)
+}
 
+// dangerously query for something I already know exist
 func _easyQuery(q string, args ...interface{}) string{
 	return ""
 }

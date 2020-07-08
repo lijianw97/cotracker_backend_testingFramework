@@ -195,13 +195,13 @@ func postSessionData(w http.ResponseWriter, r *http.Request) {
 		storedTek = append(storedTek, tek)
 	}
 	sort.Strings(storedTek)
-	stmtTek, err := db.Prepare("INSERT INTO Test_TEK (TEK, startTime, deviceID, isAndroid) VALUES (?,from_unixtime(?/1000),?,?)")
+	stmtTek, err := db.Prepare("INSERT INTO Test_TEK (TEK, startTime, deviceID, isAndroid, sessionID) VALUES (?,from_unixtime(?/1000),?,?,?)")
 	if err != nil{
 		fmt.Println(err.Error())
 		return
 	}
 	defer stmtTek.Close()
-	stmtRpi, err := db.Prepare("INSERT INTO Test_RPI (TEK, TEKStartTime, deviceID, isAndroid, RPI, RPIStartTime, event) VALUES (?, from_unixtime(?/1000), ?, ?, ?, from_unixtime(?/1000), ?)")
+	stmtRpi, err := db.Prepare("INSERT INTO Test_RPI (TEK, TEKStartTime, deviceID, isAndroid, RPI, RPIStartTime, event, sessionID) VALUES (?, from_unixtime(?/1000), ?, ?, ?, from_unixtime(?/1000), ?, ?)")
 	if err != nil{
 		fmt.Println(err.Error())
 		return
@@ -210,12 +210,12 @@ func postSessionData(w http.ResponseWriter, r *http.Request) {
 	for _, v := range requestdata.Rpi{
 		i := sort.SearchStrings(storedTek, v.TEK)
 		if i >= len(storedTek) || storedTek[i] != v.TEK{ // encounter new Tek
-			_ ,err = stmtTek.Exec(v.TEK, v.TEKStartTime, requestdata.DeviceID, requestdata.IsAndroid)
+			_ ,err = stmtTek.Exec(v.TEK, v.TEKStartTime, requestdata.DeviceID, requestdata.IsAndroid, v.SessionID)
 			if err != nil{
 				fmt.Println(err.Error())
 			}
 		}
-		_, err = stmtRpi.Exec(v.TEK, v.TEKStartTime, requestdata.DeviceID, requestdata.IsAndroid, v.RPI, v.RPIStartTime, v.Event)
+		_, err = stmtRpi.Exec(v.TEK, v.TEKStartTime, requestdata.DeviceID, requestdata.IsAndroid, v.RPI, v.RPIStartTime, v.Event, v.SessionID)
 		if err != nil{
 			fmt.Println(err.Error())
 		}else{
