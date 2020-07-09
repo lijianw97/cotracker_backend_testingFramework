@@ -13,7 +13,6 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-
 const url string = "root:wang7203311@tcp(database-2.c1gw860hlwji.us-east-2.rds.amazonaws.com:3306)/LocationTable"
 
 type TekStruct []struct {
@@ -24,13 +23,14 @@ type TekStruct []struct {
 type TekStructDevice []struct {
 	Timestemp int64  `json:"i" validate:"required"`
 	Tek       string `json:"tek" validate:"required"`
-	IsAndroid	bool
-	DeviceID	string
+	IsAndroid bool
+	DeviceID  string
 }
 
 type SingleTek struct {
 	Timestemp int64  `json:"i" validate:"required"`
-	Tek       string `json:"tek" validate:"required"` }
+	Tek       string `json:"tek" validate:"required"`
+}
 
 type DeviceData struct {
 	Userid           string `json:"userid"`
@@ -44,36 +44,37 @@ type DeviceData struct {
 	Test_Devicescol  string `json:"Test_Devicescol"`
 }
 type ExposureData []struct {
-	SessionID		int
-	RPI				string
-	StartTime		int
-	Duration		int
-	Source 			string
-	Address	 		string
+	SessionID int
+	RPI       string
+	StartTime int
+	Duration  int
+	Source    string
+	Address   string
 }
-type TekRpiData []struct{
-	SessionID		int
-	TEK 			string
-	TEKStartTime 	int
-	RPI				string
-	RPIStartTime	int
-	Event 			string
+type TekRpiData []struct {
+	SessionID    int
+	TEK          string
+	TEKStartTime int
+	RPI          string
+	RPIStartTime int
+	Event        string
 }
-type RssiData []struct{
-	SessionID		int
-	Timestamp		int
-	Rssi			int
-	Address			string
-	Source			string
-	Rpi				string
+type RssiData []struct {
+	SessionID int
+	Timestamp int
+	Rssi      int
+	Address   string
+	Source    string
+	Rpi       string
 }
-type SessionData struct{
-	Contact 		ExposureData
-	Rpi 			TekRpiData
-	Rssi 			RssiData
-	IsAndroid		bool
-	DeviceID		string
+type SessionData struct {
+	Contact   ExposureData
+	Rpi       TekRpiData
+	Rssi      RssiData
+	IsAndroid bool
+	DeviceID  string
 }
+
 func gettek(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("connected!!!!")
 	body, _ := ioutil.ReadAll(r.Body)
@@ -184,41 +185,41 @@ func postSessionData(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("updateTekRpi")
 	var storedTek []string
 	row, err := db.Query("SELECT DISTINCT TEK FROM Test_TEK WHERE deviceID = ? AND isAndroid = ?", requestdata.DeviceID, requestdata.IsAndroid)
-	if err != nil{
+	if err != nil {
 		fmt.Println(err.Error())
 		return
 	}
 	defer row.Close()
-	for row.Next(){
+	for row.Next() {
 		var tek string
 		row.Scan(&tek)
 		storedTek = append(storedTek, tek)
 	}
 	sort.Strings(storedTek)
 	stmtTek, err := db.Prepare("INSERT INTO Test_TEK (TEK, startTime, deviceID, isAndroid, sessionID) VALUES (?,from_unixtime(?/1000),?,?,?)")
-	if err != nil{
+	if err != nil {
 		fmt.Println(err.Error())
 		return
 	}
 	defer stmtTek.Close()
 	stmtRpi, err := db.Prepare("INSERT INTO Test_RPI (TEK, TEKStartTime, deviceID, isAndroid, RPI, RPIStartTime, event, sessionID) VALUES (?, from_unixtime(?/1000), ?, ?, ?, from_unixtime(?/1000), ?, ?)")
-	if err != nil{
+	if err != nil {
 		fmt.Println(err.Error())
 		return
 	}
 	defer stmtRpi.Close()
-	for _, v := range requestdata.Rpi{
+	for _, v := range requestdata.Rpi {
 		i := sort.SearchStrings(storedTek, v.TEK)
-		if i >= len(storedTek) || storedTek[i] != v.TEK{ // encounter new Tek
-			_ ,err = stmtTek.Exec(v.TEK, v.TEKStartTime, requestdata.DeviceID, requestdata.IsAndroid, v.SessionID)
-			if err != nil{
+		if i >= len(storedTek) || storedTek[i] != v.TEK { // encounter new Tek
+			_, err = stmtTek.Exec(v.TEK, v.TEKStartTime, requestdata.DeviceID, requestdata.IsAndroid, v.SessionID)
+			if err != nil {
 				fmt.Println(err.Error())
 			}
 		}
 		_, err = stmtRpi.Exec(v.TEK, v.TEKStartTime, requestdata.DeviceID, requestdata.IsAndroid, v.RPI, v.RPIStartTime, v.Event, v.SessionID)
-		if err != nil{
+		if err != nil {
 			fmt.Println(err.Error())
-		}else{
+		} else {
 			storedTek = append(storedTek, v.TEK)
 		}
 	}
@@ -230,7 +231,7 @@ func postSessionData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer stmt.Close()
-	for _, v := range requestdata.Contact{
+	for _, v := range requestdata.Contact {
 		_, err := stmt.Exec(v.SessionID, requestdata.IsAndroid, requestdata.DeviceID, v.RPI, v.StartTime, v.Duration, v.Source, v.Address)
 		if err != nil {
 			fmt.Println(err.Error())
@@ -244,7 +245,7 @@ func postSessionData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer stmtRssi.Close()
-	for _, v := range requestdata.Rssi{
+	for _, v := range requestdata.Rssi {
 		_, err = stmtRssi.Exec(requestdata.IsAndroid, requestdata.DeviceID, v.Timestamp, v.SessionID, v.Rpi, v.Rssi, v.Source, v.Address)
 		if err != nil {
 			fmt.Println(err.Error())
