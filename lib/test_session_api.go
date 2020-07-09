@@ -405,7 +405,18 @@ func SessionReport(w http.ResponseWriter, r *http.Request) {
 	var (
 		sessionIDs    []string
 		deviceIndexes []string
+		err           error
+		db            *sql.DB
 	)
+	db, err = sql.Open("mysql", url)
+	defer fmt.Println("db closed")
+	defer db.Close()
+	if err != nil {
+		fmt.Println(err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
 	queryMap := r.URL.Query()
 	sessionIDs = queryMap["sessionID"]
 	deviceIndexes = queryMap["deviceIndex"]
@@ -413,7 +424,7 @@ func SessionReport(w http.ResponseWriter, r *http.Request) {
 	fmt.Println(len(sessionIDs))
 	fmt.Println(len(deviceIndexes))
 	if len(sessionIDs) == 0 {
-		resp := _reportSessionWithoutSessionID()
+		resp := _reportSessionWithoutSessionID(db)
 		w.Write([]byte(resp))
 		return
 	} else if len(deviceIndexes) == 0 {
@@ -422,30 +433,17 @@ func SessionReport(w http.ResponseWriter, r *http.Request) {
 		// No device specific details
 		// `
 		resp := ``
-		sessionID, err := strconv.Atoi(sessionIDs[0])
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(err.Error()))
-			return
-		}
-		resp += _reportSessionWithSessionID(sessionID)
+		sessionID := sessionIDs[0]
+		resp += _reportSessionWithSessionID(sessionID, db)
 		w.Write([]byte(resp))
 		return
 	} else {
 		resp := ``
-		sessionID, err := strconv.Atoi(sessionIDs[0])
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(err.Error()))
-			return
-		}
-		deviceIndex, err := strconv.Atoi(deviceIndexes[0])
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(err.Error()))
-			return
-		}
-		resp += _reportSessionWithBothID(sessionID, deviceIndex, w, r)
+		// sessionID, err := strconv.Atoi(sessionIDs[0])
+		sessionID := sessionIDs[0]
+		// deviceIndex, err := strconv.Atoi(deviceIndexes[0])
+		deviceIndex := deviceIndexes[0]
+		resp += _reportSessionWithBothID(sessionID, deviceIndex, w, r, db)
 		w.Write([]byte(resp))
 		return
 	}
@@ -457,116 +455,53 @@ session report with both ids present:
 query for session status
 query for device status; print out total number of device in the session. number of active and inactive
 */
-func _reportSessionWithBothID(sessionID, deviceIndex int, w http.ResponseWriter, r *http.Request) string {
+func _reportSessionWithBothID(sessionID, deviceIndex string,
+	w http.ResponseWriter, r *http.Request, db *sql.DB) string {
 	var (
-		err  error
-		db   *sql.DB
-		rows *sql.Rows
-		// rows2	*sql.Rows
 		q1            string
 		content       []string
 		sessionStatus string
 		deviceCount   string
 		deviceStatus  []string // total
-		// i			int // iterator index
 	)
-	db, err = sql.Open("mysql", url)
-	defer fmt.Println("db closed")
-	defer db.Close()
-	if err != nil {
-		fmt.Println(err.Error())
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return ""
-	}
-	q1 = `
-		select isActive from Test_Sessions where sessionID=?;
-	`
-	rows, err = db.Query(q1, sessionID)
-	if err != nil {
-		fmt.Println(err.Error())
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return ""
-	}
-	defer rows.Close()
-	rows.Next()
-	var isActive int
-	rows.Scan(&isActive)
-	rows.Close() // for reusing
-	if isActive == 1 {
+	q1 = ` select isActive from Test_Sessions where sessionID=?; `
+	isActive := _dangerouslyQueryForOneNumber(db, q1, sessionID)
+
+	if isActive == "1" {
 		sessionStatus = "Active, expect incomplete data"
 	} else {
 		sessionStatus = "Inactive, data can be complete"
 	}
 	content = append(content, "Session Status", sessionStatus)
 
+	// get device status
 	deviceStatus = nil
 	// get total devices
-	q1 = `
-	select count(*) from Test_hasDevice where sessionID = ?;
-	`
-	rows, err = db.Query(q1, sessionID)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return err.Error()
-	}
-	rows.Next()
-	if err := rows.Scan(&deviceCount); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return err.Error()
-	}
-	rows.Close()
+	q1 = ` select count(*) from Test_hasDevice where sessionID = ?; `
+	deviceCount = _dangerouslyQueryForOneNumber(db, q1, sessionID)
 	fmt.Println("device count" + deviceCount)
 	deviceStatus = append(deviceStatus, deviceCount)
-
-	// get inactive devices
-	q1 = `
-	select count(*) from Test_hasDevice where sessionID = ? and endTime is not null;
-	`
-	rows, err = db.Query(q1, sessionID)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return err.Error()
-	}
-	rows.Next()
-	if err := rows.Scan(&deviceCount); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return err.Error()
-	}
-	rows.Close()
+	// get inactive device counts
+	q1 = ` select count(*) from Test_hasDevice where sessionID = ? and endTime is not null; `
+	deviceCount = _dangerouslyQueryForOneNumber(db, q1, sessionID)
 	fmt.Println("device count" + deviceCount)
 	deviceStatus = append(deviceStatus, deviceCount)
-
-	// get acitve devices
-	q1 = `
-	select count(*) from Test_hasDevice where sessionID = ? and endTime is null;
-	`
-	rows, err = db.Query(q1, sessionID)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return err.Error()
-	}
-	rows.Next()
-	if err := rows.Scan(&deviceCount); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return err.Error()
-	}
-	rows.Close()
+	// get acitve devices counts
+	q1 = ` select count(*) from Test_hasDevice where sessionID = ? and endTime is null; `
+	deviceCount = _dangerouslyQueryForOneNumber(db, q1, sessionID)
 	fmt.Println("device count" + deviceCount)
 	deviceStatus = append(deviceStatus, deviceCount)
-
-	content = append(content, "Device Status", fmt.Sprintf("There are, in total, %s devices , %s are inactive and %s are active", deviceStatus[0], deviceStatus[1], deviceStatus[2]))
+	deviceStatusInterface := make([]interface{}, 3)
+	for i := 0; i < 3; i++ {
+		deviceStatusInterface[i] = deviceStatus[i]
+	}
+	content = append(content, "Device Status", fmt.Sprintf("There are, in total, %s devices , %s are inactive and %s are active", deviceStatusInterface...))
 	if deviceStatus[0] != "0" {
 		// keep doing analysis if the session has devices
 		deviceStatus = nil
+
 	}
+	// additional items
 	// get exposures
 
 	// get other devices
@@ -574,9 +509,8 @@ func _reportSessionWithBothID(sessionID, deviceIndex int, w http.ResponseWriter,
 	return _htmlify(content)
 }
 
-func _reportSessionWithoutSessionID() string {
+func _reportSessionWithoutSessionID(db *sql.DB) string {
 	var (
-		db                  *sql.DB
 		err                 error
 		content             []string
 		q                   string
@@ -634,7 +568,7 @@ select sessionID , (select count(*) from Test_hasDevice where sessionID = a.sess
 
 // resp += ` No sessionID. Please consider appending "?sessionID=1&deviceIndex=1" at the end of the url for specific session or specific device. Maybe I should list out all sessionIDs, and show how many sessions are ongoing and how many are inactive. Maybe also show stats about when those session begin and end. As well as number of ongoing devices and stuff. `
 
-func _reportSessionWithSessionID(sessionID int) string {
+func _reportSessionWithSessionID(sessionID string, db *sql.DB) string {
 	return _htmlify([]string{"title", "content", "another", "content2"})
 }
 
