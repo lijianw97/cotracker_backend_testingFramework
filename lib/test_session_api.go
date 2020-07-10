@@ -536,7 +536,7 @@ func _reportSessionWithBothID(sessionID, deviceIndex string,
  Test_hasDevice d on c.sessionID = d.sessionID and 
  c.isAndroid = d.isAndroid and c.deviceID = d.deviceID inner join (select 
  	RPI, isAndroid, deviceID, sessionID, sum(rssi)/count(*) as 
- 	RSSI from Test_Exposures_Rssi group by isAndroid, 
+ 	RSSI from Test_Exposures_Rssi where RSSI <> 127 group by isAndroid, 
  	deviceID, RPI, sessionID) e on c.sessionid = e.sessionid 
  and c.RPI = e.RPI and c.thisIsAndroid = e.isAndroid and c.thisDeviceID = e.deviceID;
 	 `
