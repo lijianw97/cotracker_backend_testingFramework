@@ -472,7 +472,7 @@ func _reportSessionWithBothID(sessionID, deviceIndex string,
 	} else {
 		sessionStatus = "Inactive, data can be complete"
 	}
-	content = append(content, "Session Status", sessionStatus)
+	content = append(content, fmt.Sprintf("Session %s Status", sessionID), sessionStatus)
 
 	// get device status
 	deviceStatus = nil
@@ -495,15 +495,67 @@ func _reportSessionWithBothID(sessionID, deviceIndex string,
 	for i := 0; i < 3; i++ {
 		deviceStatusInterface[i] = deviceStatus[i]
 	}
-	content = append(content, "Device Status", fmt.Sprintf("There are, in total, %s devices , %s are inactive and %s are active", deviceStatusInterface...))
-	if deviceStatus[0] != "0" {
-		// keep doing analysis if the session has devices
-		deviceStatus = nil
-
+	deviceStatusContent := fmt.Sprintf("There are, in total, %s devices , %s are inactive and %s are active", deviceStatusInterface...)
+	deviceStatusContent += _h4("Participating Devices")
+	q := `
+	select deviceIndex, isAndroid, deviceID from Test_hasDevice where sessionID = ?;
+	`
+	var participatingDevices []string
+	var (
+		selfDeviceID, selfIsAndroid string
+	)
+	participatingDeviceContent_out := _dangerouslyQueryForNNumberForMultipleLines(
+		3, db, q, sessionID)
+	for _, v := range participatingDeviceContent_out {
+		var (
+			vv, vvv string
+		)
+		if v[1] == "1" {
+			vv = "Android"
+		} else {
+			vv = "iOS"
+		}
+		if string(v[0]) == deviceIndex {
+			vvv = _bold("SELF")
+			selfDeviceID = v[2]
+			selfIsAndroid = v[1]
+		}
+		participatingDevices = append(participatingDevices,
+			fmt.Sprintf("device index %s, %s, %s %s",
+				v[0], vv, v[2], vvv))
 	}
-	// additional items
+	deviceStatusContent += _ul(participatingDevices...)
+	content = append(content, fmt.Sprintf("Device %s Status", deviceIndex), deviceStatusContent)
 	// get exposures
+	q = `
+	select c.duration, d.deviceIndex, e.RSSI, d.isAndroid, d.deviceID
+ from (select a.duration, b.isAndroid, b.deviceID, b.sessionID, b.RPI,
+ 	a.deviceID as thisDeviceID, a.isAndroid as thisIsAndroid
+  from (select * from Test_Exposures where isAndroid = ? and deviceID = ? and sessionID = ?) a 
+  inner join Test_RPI b on a.sessionID = b.sessionID and a.RPI = b.RPI )  c inner join 
+ Test_hasDevice d on c.sessionID = d.sessionID and 
+ c.isAndroid = d.isAndroid and c.deviceID = d.deviceID inner join (select 
+ 	RPI, isAndroid, deviceID, sessionID, sum(rssi)/count(*) as 
+ 	RSSI from Test_Exposures_Rssi group by isAndroid, 
+ 	deviceID, RPI, sessionID) e on c.sessionid = e.sessionid 
+ and c.RPI = e.RPI and c.thisIsAndroid = e.isAndroid and c.thisDeviceID = e.deviceID;
+	 `
+	exposureQueryResults := _dangerouslyQueryForNNumberForMultipleLines(5, db, q, selfIsAndroid, selfDeviceID, sessionID)
+	// I get duration, deviceIndex (other), RSSI (avg), isAndroid, deviceID
+	exposureDetails := _p("Device Index is consistent with previous sessions")
+	var exposureListItems []string
+	for _, v := range exposureQueryResults {
+		var deviceMake string
+		if v[3] == "1" {
+			deviceMake = "Android"
+		} else {
+			deviceMake = "iOS"
+		}
+		exposureListItems = append(exposureListItems, fmt.Sprintf("Exposed to Device %s, %s, average RSSI %s, Contact Duration %s milliseconds, deviceID %s", v[1], deviceMake, v[2], v[0], v[4]))
+	}
+	exposureDetails += _ul(exposureListItems...)
 
+	content = append(content, "Exposure Details", exposureDetails)
 	// get other devices
 	content = append(content, "Other devices", _p("NOPE")+_p("yep"))
 	return _htmlify(content)

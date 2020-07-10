@@ -231,8 +231,10 @@ func postSessionData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer stmt.Close()
+	fmt.Println("to insert RPI")
 	for _, v := range requestdata.Contact {
 		_, err := stmt.Exec(v.SessionID, requestdata.IsAndroid, requestdata.DeviceID, v.RPI, v.StartTime, v.Duration, v.Source, v.Address)
+		fmt.Println("RPI to be inserted " + v.RPI)
 		if err != nil {
 			fmt.Println(err.Error())
 		}
