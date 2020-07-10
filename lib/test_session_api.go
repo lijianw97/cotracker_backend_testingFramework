@@ -553,11 +553,12 @@ func _reportSessionWithBothID(sessionID, deviceIndex string,
 		}
 		exposureListItems = append(exposureListItems, fmt.Sprintf("Exposed to Device %s, %s, average RSSI %s, Contact Duration %s milliseconds, deviceID %s", v[1], deviceMake, v[2], v[0], v[4]))
 	}
+	exposureDetails += _p(fmt.Sprintf("There are %d contacts on record", len(exposureListItems)))
 	exposureDetails += _ul(exposureListItems...)
 
 	content = append(content, "Exposure Details", exposureDetails)
 	// get other devices
-	content = append(content, "Other devices", _p("NOPE")+_p("yep"))
+	content = append(content, "Other devices", _h4("NOPE")+_p("yes"))
 	return _htmlify(content)
 }
 
