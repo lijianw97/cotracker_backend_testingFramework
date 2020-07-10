@@ -239,6 +239,8 @@ func postSessionData(w http.ResponseWriter, r *http.Request) {
 			fmt.Println(err.Error())
 		}
 	}
+	fmt.Printf("Exposures %+v", requestdata.Contact)
+	fmt.Printf("RPIs %+v" , requestdata.Rpi)
 	// insertRssi
 	fmt.Println("insertRssi")
 	stmtRssi, err := db.Prepare("INSERT INTO Test_Exposures_Rssi (isAndroid, deviceID, startTime, sessionID, RPI, RSSI, source, address) VALUES (?,?,from_unixtime(?/1000),?,?,?,?,?)")

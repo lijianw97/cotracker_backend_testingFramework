@@ -14,6 +14,7 @@ import (
 )
 
 const url string = "root:wang7203311@tcp(database-2.c1gw860hlwji.us-east-2.rds.amazonaws.com:3306)/LocationTable"
+const queryRelativeURLwithDeviceIndexThenSessionID string = "SessionReport?deviceIndex=%s&sessionID=%s"
 
 type SessionGeneric struct {
 	SessionID        int    `json:"sessionID"`
@@ -497,8 +498,9 @@ func _reportSessionWithBothID(sessionID, deviceIndex string,
 	}
 	deviceStatusContent := fmt.Sprintf("There are, in total, %s devices , %s are inactive and %s are active", deviceStatusInterface...)
 	deviceStatusContent += _h4("Participating Devices")
+	// query for inactive devices first
 	q := `
-	select deviceIndex, isAndroid, deviceID from Test_hasDevice where sessionID = ?;
+	select deviceIndex, isAndroid, deviceID from Test_hasDevice where sessionID = ? and endTime is not null;
 	`
 	var participatingDevices []string
 	var (
@@ -508,8 +510,9 @@ func _reportSessionWithBothID(sessionID, deviceIndex string,
 		3, db, q, sessionID)
 	for _, v := range participatingDeviceContent_out {
 		var (
-			vv, vvv string
+			vvvv, vv, vvv string
 		)
+		vvvv = "Inactive"
 		if v[1] == "1" {
 			vv = "Android"
 		} else {
@@ -521,14 +524,46 @@ func _reportSessionWithBothID(sessionID, deviceIndex string,
 			selfIsAndroid = v[1]
 		}
 		participatingDevices = append(participatingDevices,
-			fmt.Sprintf("device index %s, %s, %s %s",
-				v[0], vv, v[2], vvv))
+			fmt.Sprintf("%s device index %s, %s, %s %s", vvvv,
+				_a(fmt.Sprintf("SessionReport?deviceIndex=%s&sessionID=%s", v[0], sessionID),v[0]),
+				vv, v[2], vvv))
+	}
+	deviceStatusContent += _ul(participatingDevices...)
+
+	// query for active devices 
+	participatingDevices = nil
+	q = `
+	select deviceIndex, isAndroid, deviceID from Test_hasDevice where sessionID = ? and endTime is null;
+	`
+	participatingDeviceContent_out = _dangerouslyQueryForNNumberForMultipleLines(
+		3, db, q, sessionID)
+
+	for _, v := range participatingDeviceContent_out {
+		var (
+			vvvv, vv, vvv string
+		)
+		vvvv = "Active"
+		if v[1] == "1" {
+			vv = "Android"
+		} else {
+			vv = "iOS"
+		}
+		if string(v[0]) == deviceIndex {
+			vvv = _bold("SELF")
+			selfDeviceID = v[2]
+			selfIsAndroid = v[1]
+		}
+		participatingDevices = append(participatingDevices,
+		fmt.Sprintf("%s device index %s, %s, %s %s", vvvv,
+		_a(fmt.Sprintf("SessionReport?deviceIndex=%s&sessionID=%s", v[0], sessionID),v[0]),
+				vv, v[2], vvv))
 	}
 	deviceStatusContent += _ul(participatingDevices...)
 	content = append(content, fmt.Sprintf("Device %s Status", deviceIndex), deviceStatusContent)
 	// get exposures
 	q = `
-	select c.duration, d.deviceIndex, e.RSSI, d.isAndroid, d.deviceID
+	select c.duration, d.deviceIndex, e.RSSI, d.isAndroid, d.deviceID, 
+	e.RPI
  from (select a.duration, b.isAndroid, b.deviceID, b.sessionID, b.RPI,
  	a.deviceID as thisDeviceID, a.isAndroid as thisIsAndroid
   from (select * from Test_Exposures where isAndroid = ? and deviceID = ? and sessionID = ?) a 
@@ -540,9 +575,9 @@ func _reportSessionWithBothID(sessionID, deviceIndex string,
  	deviceID, RPI, sessionID) e on c.sessionid = e.sessionid 
  and c.RPI = e.RPI and c.thisIsAndroid = e.isAndroid and c.thisDeviceID = e.deviceID;
 	 `
-	exposureQueryResults := _dangerouslyQueryForNNumberForMultipleLines(5, db, q, selfIsAndroid, selfDeviceID, sessionID)
+	exposureQueryResults := _dangerouslyQueryForNNumberForMultipleLines(6, db, q, selfIsAndroid, selfDeviceID, sessionID)
 	// I get duration, deviceIndex (other), RSSI (avg), isAndroid, deviceID
-	exposureDetails := _p("Device Index is consistent with previous sessions")
+	exposureDetails := _p("Device index is consistent with the above section 'Participating Devices'")
 	var exposureListItems []string
 	for _, v := range exposureQueryResults {
 		var deviceMake string
@@ -551,7 +586,7 @@ func _reportSessionWithBothID(sessionID, deviceIndex string,
 		} else {
 			deviceMake = "iOS"
 		}
-		exposureListItems = append(exposureListItems, fmt.Sprintf("Exposed to Device %s, %s, average RSSI %s, Contact Duration %s milliseconds, deviceID %s", v[1], deviceMake, v[2], v[0], v[4]))
+		exposureListItems = append(exposureListItems, fmt.Sprintf("Exposed to Device %s, %s, average RSSI %s, Contact Duration %s milliseconds, deviceID %s, RPI: %s", v[1], deviceMake, v[2], v[0], v[4], v[5]))
 	}
 	exposureDetails += _p(fmt.Sprintf("There are %d contacts on record", len(exposureListItems)))
 	exposureDetails += _ul(exposureListItems...)
@@ -681,6 +716,11 @@ func _ul(args ...string) string {
 		item += `<li>` + string(v) + `</li>`
 	}
 	return open + item + close
+}
+func _a(url, text string) string {
+	open := fmt.Sprintf("<a href=%s>",url)
+	close := "</a>"
+	return open + text + close
 }
 
 // dangerously query for something I already know exist
