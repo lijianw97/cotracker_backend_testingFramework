@@ -956,7 +956,7 @@ on c.sessionID = d.sessionID and c.RPI = d.RPI;
 		} else {
 			scannerMake = "iOS"
 		}
-		if advertiserMake == "0" {
+		if advertiserMake == "1" {
 			advertiserMake = "Android"
 		} else {
 			advertiserMake = "iOS"
