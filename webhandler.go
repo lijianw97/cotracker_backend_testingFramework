@@ -384,7 +384,8 @@ func main() {
 	http.HandleFunc("/JoinSession", functions.JoinSession)
 	http.HandleFunc("/EndSession", functions.EndSession)
 	http.HandleFunc("/SessionReport", functions.SessionReport)
-	// http.Handle("/img", http.FileServer(http.Dir("/home/ubuntu/go/src/workdir/tekdebug/img/")))
+	// http.Handle("/img/", http.FileServer(http.Dir("/home/ubuntu/go/src/workdir/tekdebug/")))
+	// or
 	fs := http.FileServer(http.Dir("/home/ubuntu/go/src/workdir/tekdebug/img/"))
 	http.Handle("/img/", http.StripPrefix("/img", fs))
 
