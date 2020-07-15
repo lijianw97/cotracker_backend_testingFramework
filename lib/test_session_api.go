@@ -11,6 +11,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/goccy/go-graphviz"
 )
 
 const url string = "root:wang7203311@tcp(database-2.c1gw860hlwji.us-east-2.rds.amazonaws.com:3306)/LocationTable"
@@ -525,12 +526,12 @@ func _reportSessionWithBothID(sessionID, deviceIndex string,
 		}
 		participatingDevices = append(participatingDevices,
 			fmt.Sprintf("%s device index %s, %s, %s %s", vvvv,
-				_a(fmt.Sprintf("SessionReport?deviceIndex=%s&sessionID=%s", v[0], sessionID),v[0]),
+				_a(fmt.Sprintf("SessionReport?deviceIndex=%s&sessionID=%s", v[0], sessionID), v[0]),
 				vv, v[2], vvv))
 	}
 	deviceStatusContent += _ul(participatingDevices...)
 
-	// query for active devices 
+	// query for active devices
 	participatingDevices = nil
 	q = `
 	select deviceIndex, isAndroid, deviceID from Test_hasDevice where sessionID = ? and endTime is null;
@@ -554,12 +555,15 @@ func _reportSessionWithBothID(sessionID, deviceIndex string,
 			selfIsAndroid = v[1]
 		}
 		participatingDevices = append(participatingDevices,
-		fmt.Sprintf("%s device index %s, %s, %s %s", vvvv,
-		_a(fmt.Sprintf("SessionReport?deviceIndex=%s&sessionID=%s", v[0], sessionID),v[0]),
+			fmt.Sprintf("%s device index %s, %s, %s %s", vvvv,
+				_a(fmt.Sprintf("SessionReport?deviceIndex=%s&sessionID=%s", v[0], sessionID), v[0]),
 				vv, v[2], vvv))
 	}
 	deviceStatusContent += _ul(participatingDevices...)
 	content = append(content, fmt.Sprintf("Device %s Status", deviceIndex), deviceStatusContent)
+	// get a graph
+	content = append(content, "Graph", _generateEncounterGraph(db, sessionID, deviceIndex))
+
 	// get exposures
 	q = `
 	select c.duration, d.deviceIndex, e.RSSI, d.isAndroid, d.deviceID, 
@@ -657,7 +661,145 @@ select sessionID , (select count(*) from Test_hasDevice where sessionID = a.sess
 // resp += ` No sessionID. Please consider appending "?sessionID=1&deviceIndex=1" at the end of the url for specific session or specific device. Maybe I should list out all sessionIDs, and show how many sessions are ongoing and how many are inactive. Maybe also show stats about when those session begin and end. As well as number of ongoing devices and stuff. `
 
 func _reportSessionWithSessionID(sessionID string, db *sql.DB) string {
-	return _htmlify([]string{"title", "content", "another", "content2"})
+	var (
+		q1            string
+		content       []string
+		sessionStatus string
+		deviceIndex   string = "0"
+		deviceCount   string
+		deviceStatus  []string // total
+	)
+	q1 = ` select isActive from Test_Sessions where sessionID=?; `
+	isActive := _dangerouslyQueryForOneNumber(db, q1, sessionID)
+
+	if isActive == "1" {
+		sessionStatus = "Active, expect incomplete data"
+	} else {
+		sessionStatus = "Inactive, data can be complete"
+	}
+	content = append(content, fmt.Sprintf("Session %s Status", sessionID), sessionStatus)
+
+	// get device status
+	deviceStatus = nil
+	// get total devices
+	q1 = ` select count(*) from Test_hasDevice where sessionID = ?; `
+	deviceCount = _dangerouslyQueryForOneNumber(db, q1, sessionID)
+	fmt.Println("device count" + deviceCount)
+	deviceStatus = append(deviceStatus, deviceCount)
+	// get inactive device counts
+	q1 = ` select count(*) from Test_hasDevice where sessionID = ? and endTime is not null; `
+	deviceCount = _dangerouslyQueryForOneNumber(db, q1, sessionID)
+	fmt.Println("device count" + deviceCount)
+	deviceStatus = append(deviceStatus, deviceCount)
+	// get acitve devices counts
+	q1 = ` select count(*) from Test_hasDevice where sessionID = ? and endTime is null; `
+	deviceCount = _dangerouslyQueryForOneNumber(db, q1, sessionID)
+	fmt.Println("device count" + deviceCount)
+	deviceStatus = append(deviceStatus, deviceCount)
+	deviceStatusInterface := make([]interface{}, 3)
+	for i := 0; i < 3; i++ {
+		deviceStatusInterface[i] = deviceStatus[i]
+	}
+	deviceStatusContent := fmt.Sprintf("There are, in total, %s devices , %s are inactive and %s are active", deviceStatusInterface...)
+	deviceStatusContent += _h4("Participating Devices")
+	// query for inactive devices first
+	q := `
+	select deviceIndex, isAndroid, deviceID from Test_hasDevice where sessionID = ? and endTime is not null;
+	`
+	var participatingDevices []string
+	var (
+		selfDeviceID, selfIsAndroid string
+	)
+	participatingDeviceContent_out := _dangerouslyQueryForNNumberForMultipleLines(
+		3, db, q, sessionID)
+	for _, v := range participatingDeviceContent_out {
+		var (
+			vvvv, vv, vvv string
+		)
+		vvvv = "Inactive"
+		if v[1] == "1" {
+			vv = "Android"
+		} else {
+			vv = "iOS"
+		}
+		if string(v[0]) == deviceIndex {
+			vvv = _bold("SELF")
+			selfDeviceID = v[2]
+			selfIsAndroid = v[1]
+		}
+		participatingDevices = append(participatingDevices,
+			fmt.Sprintf("%s device index %s, %s, %s %s", vvvv,
+				_a(fmt.Sprintf("SessionReport?deviceIndex=%s&sessionID=%s", v[0], sessionID), v[0]),
+				vv, v[2], vvv))
+	}
+	deviceStatusContent += _ul(participatingDevices...)
+
+	// query for active devices
+	participatingDevices = nil
+	q = `
+	select deviceIndex, isAndroid, deviceID from Test_hasDevice where sessionID = ? and endTime is null;
+	`
+	participatingDeviceContent_out = _dangerouslyQueryForNNumberForMultipleLines(
+		3, db, q, sessionID)
+
+	for _, v := range participatingDeviceContent_out {
+		var (
+			vvvv, vv, vvv string
+		)
+		vvvv = "Active"
+		if v[1] == "1" {
+			vv = "Android"
+		} else {
+			vv = "iOS"
+		}
+		if string(v[0]) == deviceIndex {
+			vvv = _bold("SELF")
+			selfDeviceID = v[2]
+			selfIsAndroid = v[1]
+		}
+		participatingDevices = append(participatingDevices,
+			fmt.Sprintf("%s device index %s, %s, %s %s", vvvv,
+				_a(fmt.Sprintf("SessionReport?deviceIndex=%s&sessionID=%s", v[0], sessionID), v[0]),
+				vv, v[2], vvv))
+	}
+	deviceStatusContent += _ul(participatingDevices...)
+	content = append(content, fmt.Sprintf("Device %s Status", deviceIndex), deviceStatusContent)
+	// get exposures
+	q = `
+	select c.duration, d.deviceIndex, e.RSSI, d.isAndroid, d.deviceID, 
+	e.RPI
+ from (select a.duration, b.isAndroid, b.deviceID, b.sessionID, b.RPI,
+ 	a.deviceID as thisDeviceID, a.isAndroid as thisIsAndroid
+  from (select * from Test_Exposures where isAndroid = ? and deviceID = ? and sessionID = ?) a 
+  inner join Test_RPI b on a.sessionID = b.sessionID and a.RPI = b.RPI )  c inner join 
+ Test_hasDevice d on c.sessionID = d.sessionID and 
+ c.isAndroid = d.isAndroid and c.deviceID = d.deviceID inner join (select 
+ 	RPI, isAndroid, deviceID, sessionID, sum(rssi)/count(*) as 
+ 	RSSI from Test_Exposures_Rssi where RSSI <> 127 group by isAndroid, 
+ 	deviceID, RPI, sessionID) e on c.sessionid = e.sessionid 
+ and c.RPI = e.RPI and c.thisIsAndroid = e.isAndroid and c.thisDeviceID = e.deviceID;
+	 `
+	exposureQueryResults := _dangerouslyQueryForNNumberForMultipleLines(6, db, q, selfIsAndroid, selfDeviceID, sessionID)
+	// I get duration, deviceIndex (other), RSSI (avg), isAndroid, deviceID
+	exposureDetails := _p("Device index is consistent with the above section 'Participating Devices'")
+	var exposureListItems []string
+	for _, v := range exposureQueryResults {
+		var deviceMake string
+		if v[3] == "1" {
+			deviceMake = "Android"
+		} else {
+			deviceMake = "iOS"
+		}
+		exposureListItems = append(exposureListItems, fmt.Sprintf("Exposed to Device %s, %s, average RSSI %s, Contact Duration %s milliseconds, deviceID %s, RPI: %s", v[1], deviceMake, v[2], v[0], v[4], v[5]))
+	}
+	exposureDetails += _p(fmt.Sprintf("There are %d contacts on record", len(exposureListItems)))
+	exposureDetails += _ul(exposureListItems...)
+
+	content = append(content, "Exposure Details", exposureDetails)
+	// get other devices
+	content = append(content, "Other devices", _h4("NOPE")+_p("yes"))
+	return _htmlify(content)
+
 }
 
 // input: array of string that follows
@@ -718,7 +860,7 @@ func _ul(args ...string) string {
 	return open + item + close
 }
 func _a(url, text string) string {
-	open := fmt.Sprintf("<a href=%s>",url)
+	open := fmt.Sprintf("<a href=%s>", url)
 	close := "</a>"
 	return open + text + close
 }
@@ -769,5 +911,64 @@ func _dangerouslyQueryForNNumberForMultipleLines(n int, db *sql.DB, s string, ar
 		}
 		out = append(out, result)
 	}
+	return out
+}
+
+/**function for creating a directed graph using graphviz
+ * the query will join */
+func _generateEncounterGraph(db *sql.DB, sessionID, deviceIndex string) string {
+	var (
+		q   string
+		out string
+	)
+
+	q = `
+	select c.scannerIndex, d.advertiserIndex from
+	(select b.deviceIndex as "scannerIndex", a.sessionID, a.RPI from
+		(select * from Test_Exposures where sessionID = ?) a
+	inner join Test_hasDevice b on
+	a.isAndroid = b.isAndroid and a.deviceID = b.deviceID and a.sessionID = b.sessionID) c
+inner join
+	(select d1.sessionID,d1.RPI as "RPI", d2.deviceIndex as "advertiserIndex" from Test_RPI d1 inner join Test_hasDevice d2
+	on d1.sessionID = d2.sessionID and d1.isAndroid = d2.isAndroid and d1.deviceID = d2.deviceID) d
+on c.sessionID = d.sessionID and c.RPI = d.RPI;
+	`
+	qResults := _dangerouslyQueryForNNumberForMultipleLines(2, db, q, sessionID)
+	g := graphviz.New()
+	graph, err := g.Graph()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := graph.Close(); err != nil {
+			log.Fatal(err)
+		}
+		g.Close()
+	}()
+
+	for _, v := range qResults {
+		scannerIndex := v[0]
+		advertiserIndex := v[1]
+		m, err := graph.CreateNode(scannerIndex)
+		if scannerIndex == deviceIndex {
+			m.SetFontColor("red")
+		}
+		n, err := graph.CreateNode(advertiserIndex)
+		if advertiserIndex == deviceIndex {
+			n.SetFontColor("red")
+		}
+		e, err := graph.CreateEdge("", n, m)
+		if err != nil {
+			log.Fatal(err)
+		}
+		e.SetLabel("seen")
+
+	}
+	path := fmt.Sprintf("img/SessionID%sDeviceIndex%s.png", sessionID, deviceIndex)
+	fmt.Println("path is " + path)
+	if err := g.RenderFilename(graph, graphviz.PNG, path); err != nil {
+		log.Fatal(err)
+	}
+	out = fmt.Sprintf("<img src=./%s>", path)
 	return out
 }

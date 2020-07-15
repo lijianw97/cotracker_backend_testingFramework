@@ -231,7 +231,6 @@ func postSessionData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer stmt.Close()
-	fmt.Println("to insert RPI")
 	for _, v := range requestdata.Contact {
 		_, err := stmt.Exec(v.SessionID, requestdata.IsAndroid, requestdata.DeviceID, v.RPI, v.StartTime, v.Duration, v.Source, v.Address)
 		fmt.Println("RPI to be inserted " + v.RPI)
@@ -239,8 +238,6 @@ func postSessionData(w http.ResponseWriter, r *http.Request) {
 			fmt.Println(err.Error())
 		}
 	}
-	fmt.Printf("Exposures %+v", requestdata.Contact)
-	fmt.Printf("RPIs %+v" , requestdata.Rpi)
 	// insertRssi
 	fmt.Println("insertRssi")
 	stmtRssi, err := db.Prepare("INSERT INTO Test_Exposures_Rssi (isAndroid, deviceID, startTime, sessionID, RPI, RSSI, source, address) VALUES (?,?,from_unixtime(?/1000),?,?,?,?,?)")
@@ -255,6 +252,10 @@ func postSessionData(w http.ResponseWriter, r *http.Request) {
 			fmt.Println(err.Error())
 		}
 	}
+
+	fmt.Printf("RPIs %+v\n", requestdata.Rpi)
+	fmt.Printf("RSSI %+v\n", requestdata.Rssi)
+	fmt.Printf("Exposures %+v\n", requestdata.Contact)
 }
 
 //func insertExposure(w http.ResponseWriter, r *http.Request){
@@ -383,5 +384,9 @@ func main() {
 	http.HandleFunc("/JoinSession", functions.JoinSession)
 	http.HandleFunc("/EndSession", functions.EndSession)
 	http.HandleFunc("/SessionReport", functions.SessionReport)
+	// http.Handle("/img", http.FileServer(http.Dir("/home/ubuntu/go/src/workdir/tekdebug/img/")))
+	fs := http.FileServer(http.Dir("/home/ubuntu/go/src/workdir/tekdebug/img/"))
+	http.Handle("/img/", http.StripPrefix("/img", fs))
+
 	log.Fatal(http.ListenAndServe(":8003", nil))
 }
