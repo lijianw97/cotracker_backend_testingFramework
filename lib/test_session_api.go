@@ -957,11 +957,11 @@ on c.sessionID = d.sessionID and c.RPI = d.RPI;
 		if advertiserIndex == deviceIndex {
 			n.SetFontColor("red")
 		}
-		e, err := graph.CreateEdge("", n, m)
+		e, err := graph.CreateEdge("", m, n)
 		if err != nil {
 			log.Fatal(err)
 		}
-		e.SetLabel("seen")
+		e.SetLabel("sees")
 
 	}
 	path := fmt.Sprintf("img/SessionID%sDeviceIndex%s.png", sessionID, deviceIndex)
