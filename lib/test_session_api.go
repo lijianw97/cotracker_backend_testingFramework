@@ -923,17 +923,17 @@ func _generateEncounterGraph(db *sql.DB, sessionID, deviceIndex string) string {
 	)
 
 	q = `
-	select c.scannerIndex, d.advertiserIndex from
-	(select b.deviceIndex as "scannerIndex", a.sessionID, a.RPI from
+	select c.scannerIndex,c.scannerMake, d.advertiserIndex, d.advertiserMake from
+	(select b.deviceIndex as "scannerIndex", a.sessionID, a.RPI, b.isAndroid as "scannerMake" from
 		(select * from Test_Exposures where sessionID = ?) a
 	inner join Test_hasDevice b on
 	a.isAndroid = b.isAndroid and a.deviceID = b.deviceID and a.sessionID = b.sessionID) c
 inner join
-	(select d1.sessionID,d1.RPI as "RPI", d2.deviceIndex as "advertiserIndex" from Test_RPI d1 inner join Test_hasDevice d2
+	(select d1.sessionID,d1.RPI  as "RPI", d2.isAndroid as "advertiserMake", d2.deviceIndex as "advertiserIndex" from Test_RPI d1 inner join Test_hasDevice d2
 	on d1.sessionID = d2.sessionID and d1.isAndroid = d2.isAndroid and d1.deviceID = d2.deviceID) d
 on c.sessionID = d.sessionID and c.RPI = d.RPI;
 	`
-	qResults := _dangerouslyQueryForNNumberForMultipleLines(2, db, q, sessionID)
+	qResults := _dangerouslyQueryForNNumberForMultipleLines(4, db, q, sessionID)
 	g := graphviz.New()
 	graph, err := g.Graph()
 	if err != nil {
@@ -948,12 +948,24 @@ on c.sessionID = d.sessionID and c.RPI = d.RPI;
 
 	for _, v := range qResults {
 		scannerIndex := v[0]
-		advertiserIndex := v[1]
-		m, err := graph.CreateNode(scannerIndex)
+		scannerMake := v[1]
+		advertiserIndex := v[2]
+		advertiserMake := v[3]
+		if scannerMake == "1" {
+			scannerMake = "Android"
+		} else {
+			scannerMake = "iOS"
+		}
+		if advertiserMake == "0" {
+			advertiserMake = "Android"
+		} else {
+			advertiserMake = "iOS"
+		}
+		m, err := graph.CreateNode(scannerMake + scannerIndex)
 		if scannerIndex == deviceIndex {
 			m.SetFontColor("red")
 		}
-		n, err := graph.CreateNode(advertiserIndex)
+		n, err := graph.CreateNode(advertiserMake + advertiserIndex)
 		if advertiserIndex == deviceIndex {
 			n.SetFontColor("red")
 		}
