@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"sort"
 
 	functions "./lib"
@@ -371,6 +372,16 @@ func postSessionData(w http.ResponseWriter, r *http.Request) {
 //}
 
 func main() {
+	// init img folder
+	_, err := os.Stat("img")
+	if os.IsNotExist(err) {
+		errDir := os.MkdirAll("img", 0755)
+		if errDir != nil {
+			log.Fatal(err)
+		}
+
+	}
+
 	fmt.Println("listen")
 	http.HandleFunc("/PostTek", posttek)
 	http.HandleFunc("/GetTek", gettek)
