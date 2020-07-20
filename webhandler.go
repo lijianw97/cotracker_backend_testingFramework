@@ -226,7 +226,7 @@ func postSessionData(w http.ResponseWriter, r *http.Request) {
 	}
 	// insertExposure
 	fmt.Println("insertExposure")
-	stmt, err := db.Prepare("INSERT INTO Test_Exposures (sessionID, isAndroid, deviceID, RPI, startTime, duration, peripheral_isIOS, peripheralUuid) VALUES (?,?,?,?,from_unixtime(?/1000),?,?,?)")
+	stmt, err := db.Prepare("INSERT ignore INTO Test_Exposures (sessionID, isAndroid, deviceID, RPI, startTime, duration, peripheral_isIOS, peripheralUuid) VALUES (?,?,?,?,from_unixtime(?/1000),?,?,?)")
 	if err != nil {
 		fmt.Println(err.Error())
 		return
@@ -241,7 +241,7 @@ func postSessionData(w http.ResponseWriter, r *http.Request) {
 	}
 	// insertRssi
 	fmt.Println("insertRssi")
-	stmtRssi, err := db.Prepare("INSERT INTO Test_Exposures_Rssi (isAndroid, deviceID, startTime, sessionID, RPI, RSSI, peripheral_isIOS, address) VALUES (?,?,from_unixtime(?/1000),?,?,?,?,?)")
+	stmtRssi, err := db.Prepare("INSERT ignore INTO Test_Exposures_Rssi (isAndroid, deviceID, startTime, sessionID, RPI, RSSI, peripheral_isIOS, address) VALUES (?,?,from_unixtime(?/1000),?,?,?,?,?)")
 	if err != nil {
 		fmt.Println(err.Error())
 		return

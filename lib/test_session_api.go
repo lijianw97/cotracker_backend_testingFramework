@@ -457,6 +457,12 @@ session report with both ids present:
 query for session status
 query for device status; print out total number of device in the session. number of active and inactive
 */
+/*
+Update: for each edge, add number of unique RPIs seen.
+- The overall duration for a contact to one device will be the sum of all RPIs.
+- The RSSI to be displayed on the edge will be the unweighted average RSSIs of 
+	each RPIs. 
+*/
 func _reportSessionWithBothID(sessionID, deviceIndex string,
 	w http.ResponseWriter, r *http.Request, db *sql.DB) string {
 	var (
@@ -631,7 +637,7 @@ func _reportSessionWithoutSessionID(db *sql.DB) string {
 select aa.sessionID, aa.isActive, b.inactiveDeviceCount, b.activeDeviceCount from (select * from Test_Sessions where isActive = 1 order by sessionID desc limit 10) aa inner join (
 select sessionID , (select count(*) from Test_hasDevice where sessionID = a.sessionID  and endTime is not null ) as inactiveDeviceCount, (select count(*) from Test_hasDevice where sessionID = a.sessionID and endTime is null) as activeDeviceCount from Test_hasDevice a)b on aa.sessionID = b.sessionID
 union
-select aa.sessionID, aa.isActive, b.inactiveDeviceCount, b.activeDeviceCount from (select * from Test_Sessions where isActive = 0 order by sessionID desc limit 10) aa inner join (
+select aa.sessionID, aa.isActive, b.inactiveDeviceCount, b.activeDeviceCount from (select * from Test_Sessions where isActive = 0 order by sessionID desc limit 40) aa inner join (
 select sessionID , (select count(*) from Test_hasDevice where sessionID = a.sessionID  and endTime is not null ) as inactiveDeviceCount, (select count(*) from Test_hasDevice where sessionID = a.sessionID and endTime is null) as activeDeviceCount from Test_hasDevice a)b on aa.sessionID = b.sessionID;
 `
 	additionalQResultls = _dangerouslyQueryForNNumberForMultipleLines(4, db, q)
@@ -889,17 +895,30 @@ func _generateEncounterGraph(db *sql.DB, sessionID, deviceIndex string) string {
 	)
 
 	q = `
-	select c.scannerIndex,c.scannerMake, d.advertiserIndex, d.advertiserMake from
-	(select b.deviceIndex as "scannerIndex", a.sessionID, a.RPI, b.isAndroid as "scannerMake" from
+		select e.scannerIndex, e.scannerMake, e.advertiserIndex, e.advertiserMake, avg(e.RSSI) as RSSI ,
+    count(distinct(e.RPI)) as "RpiCount", sum(e.duration)/1000 as "durationSum"
+    from
+    (select c.scannerIndex,c.scannerMake, d.advertiserIndex, d.advertiserMake, c.RSSI, c.RPI, c.duration from
+	(select b.deviceIndex as "scannerIndex", a.sessionID, a.RPI, b.isAndroid as "scannerMake",
+	b1.RSSI ,a.duration	from
 		(select * from Test_Exposures where sessionID = ?) a
 	inner join Test_hasDevice b on
-	a.isAndroid = b.isAndroid and a.deviceID = b.deviceID and a.sessionID = b.sessionID) c
+	a.isAndroid = b.isAndroid and a.deviceID = b.deviceID and a.sessionID = b.sessionID
+    inner join
+		(select
+		isAndroid, deviceID, sessionID, sum(rssi)/count(*) as RSSI, RPI
+		from Test_Exposures_Rssi where RSSI <> 127 group by isAndroid,
+		deviceID, RPI, sessionID order by RSSI desc) b1
+	on b1.isAndroid = b.isAndroid and b1.deviceID = b.deviceID and b1.sessionID = b.sessionID and b1.RPI = a.RPI
+) c
 inner join
 	(select d1.sessionID,d1.RPI  as "RPI", d2.isAndroid as "advertiserMake", d2.deviceIndex as "advertiserIndex" from Test_RPI d1 inner join Test_hasDevice d2
 	on d1.sessionID = d2.sessionID and d1.isAndroid = d2.isAndroid and d1.deviceID = d2.deviceID) d
-on c.sessionID = d.sessionID and c.RPI = d.RPI;
+on c.sessionID = d.sessionID and c.RPI = d.RPI) e group by e.scannerIndex, e.scannerMake, e.advertiserIndex, e.advertiserMake;
+
 	`
-	qResults := _dangerouslyQueryForNNumberForMultipleLines(4, db, q, sessionID)
+	qResults := _dangerouslyQueryForNNumberForMultipleLines(7, db, q, sessionID)
+	fmt.Println("graph query success!")
 	g := graphviz.New()
 	graph, err := g.Graph()
 	if err != nil {
@@ -939,7 +958,32 @@ on c.sessionID = d.sessionID and c.RPI = d.RPI;
 		if err != nil {
 			log.Fatal(err)
 		}
-		e.SetLabel("sees")
+
+		e.SetLabel("NaN")
+		var (
+			edge_rssis string 
+			edge_duration string
+		)
+		// get rssi
+		if s, err := strconv.ParseFloat(v[4], 32); err == nil {
+			edge_rssis = fmt.Sprintf("%.1f", s)
+		}
+		if s,err:= strconv.ParseFloat(v[6],32); err == nil{
+			ss := int(s)
+			if ss >= 3600{
+				edge_duration += fmt.Sprintf("%d hours ", int(ss / 3600))
+				ss = ss % 3600
+			}
+			if ss >= 60 {
+				edge_duration += fmt.Sprintf("%d minutes ", int(ss / 60))
+				ss = ss % 60
+			}
+			if ss >= 0 {
+				edge_duration += fmt.Sprintf("%d seconds ", ss)
+			}
+		}
+		// edge notation: (RSSI, Duration, # of RPIs)
+		e.SetLabel(fmt.Sprintf("(%s , %s , %s)", edge_rssis, edge_duration, v[5]))
 
 	}
 	path := fmt.Sprintf("img/SessionID%sDeviceIndex%s.png", sessionID, deviceIndex)
@@ -947,6 +991,8 @@ on c.sessionID = d.sessionID and c.RPI = d.RPI;
 	if err := g.RenderFilename(graph, graphviz.PNG, path); err != nil {
 		log.Fatal(err)
 	}
-	out = fmt.Sprintf("<img src=./%s>", path)
+	out += _p("If there is a directed edge a -> b, then device a has a record of b's presence")
+	out += _p("Edge notation: (RSSI, Duration, # of RPIs)")
+	out += fmt.Sprintf("<img src=./%s>", path)
 	return out
 }
