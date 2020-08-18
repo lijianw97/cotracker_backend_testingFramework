@@ -17,8 +17,9 @@ import (
 const url string = "root:wang7203311@tcp(database-2.c1gw860hlwji.us-east-2.rds.amazonaws.com:3306)/LocationTable"
 
 type TekStruct []struct {
-	Timestemp int64  `json:"i" validate:"required"`
-	Tek       string `json:"tek" validate:"required"`
+	Timestemp  int64  `json:"timestamp" validate:"required"`
+	Tek        string `json:"tek" validate:"required"`
+	Expiretime int64  `json:"expiretime"`
 }
 
 type TekStructDevice []struct {
@@ -29,8 +30,9 @@ type TekStructDevice []struct {
 }
 
 type SingleTek struct {
-	Timestemp int64  `json:"i" validate:"required"`
-	Tek       string `json:"tek" validate:"required"`
+	Timestemp  int64  `json:"timestamp" validate:"required"`
+	Tek        string `json:"tek" validate:"required"`
+	Expiretime int64  `json:"expiretime"`
 }
 
 type DeviceData struct {
@@ -76,6 +78,18 @@ type SessionData struct {
 	DeviceID  string
 }
 
+func rpilog(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("connected!!!!")
+	body, _ := ioutil.ReadAll(r.Body)
+	fmt.Printf("log rpi = %s\n", body)
+	var ints []int
+	json.Unmarshal([]byte(body), &ints)
+	fmt.Println(ints)
+	// var requestdata TekStruct
+	//fmt.Printf("%s\n", requestdata[0].Tek)
+	// w.Write([]byte(response))
+}
+
 func gettek(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("connected!!!!")
 	body, _ := ioutil.ReadAll(r.Body)
@@ -95,10 +109,11 @@ func gettek(w http.ResponseWriter, r *http.Request) {
 		var responsedata []SingleTek
 		var tek1 string
 		var tstamp1 int64
+		var exptime int64
 		for result.Next() {
-			result.Scan(&tstamp1, &tek1)
-			log.Println(tstamp1, tek1)
-			temptek := SingleTek{tstamp1, tek1}
+			result.Scan(&tstamp1, &tek1, &exptime)
+			log.Println(tstamp1, tek1, exptime)
+			temptek := SingleTek{tstamp1, tek1, exptime}
 			responsedata = append(responsedata, temptek)
 		}
 		response, err = json.Marshal(responsedata)
@@ -127,8 +142,8 @@ func posttek(w http.ResponseWriter, r *http.Request) {
 	} else {
 		fmt.Println("sucess connected posttek")
 		for _, v := range requestdata {
-			insert, _ := db.Query("INSERT IGNORE INTO TekTable VALUES (?,?)",
-				v.Timestemp, v.Tek)
+			insert, _ := db.Query("INSERT IGNORE INTO TekTable VALUES (?,?,?)",
+				v.Timestemp, v.Tek, v.Expiretime)
 			defer insert.Close()
 		}
 	}
@@ -385,6 +400,7 @@ func main() {
 	fmt.Println("listen")
 	http.HandleFunc("/PostTek", posttek)
 	http.HandleFunc("/GetTek", gettek)
+	http.HandleFunc("/Rpilog", rpilog)
 	http.HandleFunc("/_deprecated_AddDevice", addDevice)
 	//http.HandleFunc("/AddExposure", insertExposure)
 	//http.HandleFunc("/PostTekWithDevice", posttekWithDevice)
