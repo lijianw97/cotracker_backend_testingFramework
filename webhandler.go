@@ -1,17 +1,17 @@
 package main
 
 import (
+	functions "./lib"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	_ "github.com/go-sql-driver/mysql"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"sort"
-
-	functions "./lib"
-	_ "github.com/go-sql-driver/mysql"
+	"strconv"
 )
 
 const url string = "root:wang7203311@tcp(database-2.c1gw860hlwji.us-east-2.rds.amazonaws.com:3306)/LocationTable"
@@ -76,6 +76,11 @@ type SessionData struct {
 	Rssi      RssiData
 	IsAndroid bool
 	DeviceID  string
+}
+
+type ModelData struct {
+	Oem 	string
+	Model 	string
 }
 
 func rpilog(w http.ResponseWriter, r *http.Request) {
@@ -274,6 +279,45 @@ func postSessionData(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Exposures %+v\n", requestdata.Contact)
 }
 
+func getAndroidCalibration(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("connected!!!!")
+	body, _ := ioutil.ReadAll(r.Body)
+	var requestdata ModelData
+	err := json.Unmarshal(body, &requestdata)
+	if err != nil {
+		log.Printf(err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	db, err := sql.Open("mysql", url)
+	defer db.Close()
+	if err != nil {
+		fmt.Println(err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	var calibration int
+	row, err := db.Query("SELECT tx - rssi_correction FROM En_calibration WHERE oem = ? AND model = ?", requestdata.Oem, requestdata.Model)
+	if err != nil {
+		fmt.Println(err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	defer row.Close()
+	if(row.Next()){
+		row.Scan(&calibration)
+		fmt.Println("calibration is ?", calibration)
+
+	}else {
+		calibration = 127
+		fmt.Println("calibration unfound = ", calibration)
+	}
+	t := strconv.Itoa(calibration)
+	w.Write([]byte(t))
+}
 //func insertExposure(w http.ResponseWriter, r *http.Request){
 //	body, _ := ioutil.ReadAll(r.Body)
 //	fmt.Println(body)
@@ -416,5 +460,6 @@ func main() {
 	fs := http.FileServer(http.Dir("/home/ubuntu/go/src/workdir/tekdebug/img/"))
 	http.Handle("/img/", http.StripPrefix("/img", fs))
 
+	http.HandleFunc("/GetAndroidCalibration", getAndroidCalibration)
 	log.Fatal(http.ListenAndServe(":8003", nil))
 }
