@@ -460,17 +460,18 @@ query for device status; print out total number of device in the session. number
 /*
 Update: for each edge, add number of unique RPIs seen.
 - The overall duration for a contact to one device will be the sum of all RPIs.
-- The RSSI to be displayed on the edge will be the unweighted average RSSIs of 
-	each RPIs. 
+- The RSSI to be displayed on the edge will be the unweighted average RSSIs of
+	each RPIs.
 */
 func _reportSessionWithBothID(sessionID, deviceIndex string,
 	w http.ResponseWriter, r *http.Request, db *sql.DB) string {
 	var (
-		q1            string
-		content       []string
-		sessionStatus string
-		deviceCount   string
-		deviceStatus  []string // total
+		q1             string
+		content        []string
+		sessionStatus  string
+		deviceCount    string
+		deviceStatus   []string // total
+		selfDeviceMake string
 	)
 	q1 = ` select isActive from Test_Sessions where sessionID=?; `
 	isActive := _dangerouslyQueryForOneNumber(db, q1, sessionID)
@@ -510,6 +511,7 @@ func _reportSessionWithBothID(sessionID, deviceIndex string,
 	select deviceIndex, isAndroid, deviceID from Test_hasDevice where sessionID = ? and endTime is not null;
 	`
 	var participatingDevices []string
+	var allParticipatingDeviceIDs []string
 	var (
 		selfDeviceID, selfIsAndroid string
 	)
@@ -529,7 +531,9 @@ func _reportSessionWithBothID(sessionID, deviceIndex string,
 			vvv = _bold("SELF")
 			selfDeviceID = v[2]
 			selfIsAndroid = v[1]
+			selfDeviceMake = vv
 		}
+		allParticipatingDeviceIDs = append(allParticipatingDeviceIDs, vv+"/"+v[0])
 		participatingDevices = append(participatingDevices,
 			fmt.Sprintf("%s device index %s, %s, %s %s", vvvv,
 				_a(fmt.Sprintf("SessionReport?deviceIndex=%s&sessionID=%s", v[0], sessionID), v[0]),
@@ -555,6 +559,7 @@ func _reportSessionWithBothID(sessionID, deviceIndex string,
 		} else {
 			vv = "iOS"
 		}
+		allParticipatingDeviceIDs = append(allParticipatingDeviceIDs, vv+"/"+v[0])
 		if string(v[0]) == deviceIndex {
 			vvv = _bold("SELF")
 			selfDeviceID = v[2]
@@ -586,9 +591,10 @@ func _reportSessionWithBothID(sessionID, deviceIndex string,
  and c.RPI = e.RPI and c.thisIsAndroid = e.isAndroid and c.thisDeviceID = e.deviceID;
 	 `
 	exposureQueryResults := _dangerouslyQueryForNNumberForMultipleLines(6, db, q, selfIsAndroid, selfDeviceID, sessionID)
-	// I get duration, deviceIndex (other), RSSI (avg), isAndroid, deviceID
+	// duration, deviceIndex (other), RSSI (avg), isAndroid, deviceID
 	exposureDetails := _p("Device index is consistent with the above section 'Participating Devices'")
 	var exposureListItems []string
+	var exposedDeviceIDs []string
 	for _, v := range exposureQueryResults {
 		var deviceMake string
 		if v[3] == "1" {
@@ -596,6 +602,7 @@ func _reportSessionWithBothID(sessionID, deviceIndex string,
 		} else {
 			deviceMake = "iOS"
 		}
+		exposedDeviceIDs = append(exposedDeviceIDs, deviceMake+"/"+v[1])
 		exposureListItems = append(exposureListItems, fmt.Sprintf("Exposed to Device %s, %s, average RSSI %s, Contact Duration %s milliseconds, deviceID %s, RPI: %s", v[1], deviceMake, v[2], v[0], v[4], v[5]))
 	}
 	exposureDetails += _p(fmt.Sprintf("There are %d contacts on record", len(exposureListItems)))
@@ -603,6 +610,25 @@ func _reportSessionWithBothID(sessionID, deviceIndex string,
 
 	content = append(content, "Exposure Details", exposureDetails)
 
+	// display missed devices
+	// list of device id seen including itself
+	exposedDeviceIDs = append(exposedDeviceIDs, selfDeviceMake+"/"+deviceIndex)
+	fmt.Println("exposed device ids (excluding self)")
+	fmt.Println(exposedDeviceIDs)
+	// list of all ids
+	fmt.Println("allParticipatingDeviceIDs")
+	fmt.Println(allParticipatingDeviceIDs)
+
+	missedDeviceIDs := _findMissedDeviceIDs(allParticipatingDeviceIDs, exposedDeviceIDs)
+
+	var missedDeviceIDContent string
+	missedDeviceIDContent += _p(fmt.Sprintf("Missed %d participating devices", len(missedDeviceIDs)))
+	if len(missedDeviceIDs) > 0 {
+		missedDeviceIDContent += _p("And they are:")
+		missedDeviceIDContent += _ul(missedDeviceIDs...)
+	}
+
+	content = append(content, "Missed Device ID", missedDeviceIDContent)
 	return _htmlify(content)
 }
 
@@ -886,6 +912,27 @@ func _dangerouslyQueryForNNumberForMultipleLines(n int, db *sql.DB, s string, ar
 	return out
 }
 
+/*
+
+ */
+func _findMissedDeviceIDs(all []string, seen []string) []string {
+	var missedDeviceID []string
+	for _, v := range all {
+		flag := false
+		for _, each := range seen {
+			if each == v {
+				flag = true
+				break
+			}
+		}
+		if flag == false {
+			missedDeviceID = append(missedDeviceID, v)
+		}
+	}
+	// should be available outside the scope because the variable is likely on the heap with external references to it.
+	return missedDeviceID
+}
+
 /**function for creating a directed graph using graphviz
  * the query will join */
 func _generateEncounterGraph(db *sql.DB, sessionID, deviceIndex string) string {
@@ -961,21 +1008,21 @@ on c.sessionID = d.sessionID and c.RPI = d.RPI) e group by e.scannerIndex, e.sca
 
 		e.SetLabel("NaN")
 		var (
-			edge_rssis string 
+			edge_rssis    string
 			edge_duration string
 		)
 		// get rssi
 		if s, err := strconv.ParseFloat(v[4], 32); err == nil {
 			edge_rssis = fmt.Sprintf("%.1f", s)
 		}
-		if s,err:= strconv.ParseFloat(v[6],32); err == nil{
+		if s, err := strconv.ParseFloat(v[6], 32); err == nil {
 			ss := int(s)
-			if ss >= 3600{
-				edge_duration += fmt.Sprintf("%d hours ", int(ss / 3600))
+			if ss >= 3600 {
+				edge_duration += fmt.Sprintf("%d hours ", int(ss/3600))
 				ss = ss % 3600
 			}
 			if ss >= 60 {
-				edge_duration += fmt.Sprintf("%d minutes ", int(ss / 60))
+				edge_duration += fmt.Sprintf("%d minutes ", int(ss/60))
 				ss = ss % 60
 			}
 			if ss >= 0 {
